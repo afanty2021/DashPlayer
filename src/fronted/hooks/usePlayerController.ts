@@ -1,6 +1,30 @@
+/**
+ * DashPlayer 播放器核心状态管理 Hook
+ *
+ * 这是整个播放器系统的状态管理中心，采用 Zustand 切片式架构设计
+ * 负责协调视频播放、字幕处理、用户交互等所有播放器相关功能
+ *
+ * 架构特点：
+ * - 切片式设计：将复杂状态分解为多个独立切片
+ * - 响应式更新：基于 Zustand 的订阅机制
+ * - 类型安全：完整的 TypeScript 类型约束
+ * - 性能优化：选择性订阅和浅比较
+ *
+ * 主要功能：
+ * - 视频播放控制（播放/暂停/跳转）
+ * - 字幕加载和同步
+ * - 句子级别的精确控制
+ * - 自动暂停和单句重复
+ * - 播放进度管理
+ * - 观看历史记录
+ * - 字幕翻译集成
+ */
+
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { shallow } from 'zustand/shallow';
+
+// 状态切片导入
 import createSubtitleSlice from './usePlayerControllerSlices/createSubtitleSlice';
 import {
     ControllerSlice,
@@ -15,7 +39,11 @@ import createSentenceSlice from './usePlayerControllerSlices/createSentenceSlice
 import createInternalSlice from './usePlayerControllerSlices/createInternalSlice';
 import createModeSlice from './usePlayerControllerSlices/createModeSlice';
 import createControllerSlice from './usePlayerControllerSlices/createControllerSlice';
+
+// 类型定义
 import { Sentence, SrtSentence } from '@/common/types/SentenceC';
+
+// 其他 Hook 和工具
 import useFile from './useFile';
 import { sleep } from '@/common/utils/Util';
 import useSetting from './useSetting';
@@ -25,7 +53,25 @@ import useFavouriteClip from '@/fronted/hooks/useFavouriteClip';
 import StrUtil from '@/common/utils/str-util';
 import { ObjUtil } from '@/backend/utils/ObjUtil';
 
+/**
+ * Electron API 实例
+ * 提供与主进程通信的能力
+ */
 const api = window.electron;
+
+/**
+ * 创建播放器控制器状态存储
+ *
+ * 使用 Zustand 的切片式架构，组合多个功能切片：
+ * - PlayerSlice: 基础播放控制（播放、暂停、音量等）
+ * - SentenceSlice: 句子级别的控制和状态管理
+ * - ModeSlice: 播放模式（单句重复、自动暂停等）
+ * - InternalSlice: 内部状态（精确播放时间、字幕提供者等）
+ * - SubtitleSlice: 字幕数据和翻译管理
+ * - ControllerSlice: 控制器级别的操作和业务逻辑
+ *
+ * subscribeWithSelector 中间件允许对特定状态进行精细订阅
+ */
 const usePlayerController = create<
     PlayerSlice &
     SentenceSlice &
@@ -33,20 +79,25 @@ const usePlayerController = create<
     InternalSlice &
     SubtitleSlice &
     ControllerSlice
-    // WordLevelSlice
 >()(
     subscribeWithSelector((...a) => ({
-        ...createPlayerSlice(...a),
-        ...createSentenceSlice(...a),
-        ...createModeSlice(...a),
-        ...createInternalSlice(...a),
-        ...createSubtitleSlice(...a),
-        ...createControllerSlice(...a)
+        ...createPlayerSlice(...a),      // 播放基础功能
+        ...createSentenceSlice(...a),    // 句子控制
+        ...createModeSlice(...a),        // 播放模式
+        ...createInternalSlice(...a),    // 内部状态
+        ...createSubtitleSlice(...a),    // 字幕管理
+        ...createControllerSlice(...a)   // 控制器逻辑
+        // 未来扩展：单词级别功能
         // ...createWordLevelSlice(...a),
     }))
 );
+
 export default usePlayerController;
 
+/**
+ * 播放时间同步定时器引用
+ * 用于定期同步精确播放时间到显示时间
+ */
 let interval: number | null = null;
 
 /**

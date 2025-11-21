@@ -1,18 +1,49 @@
+/**
+ * DashPlayer 视频播放器核心组件
+ *
+ * 职责：
+ * - 视频播放和播放状态控制
+ * - 播放进度管理和历史记录恢复
+ * - 背景视频帧同步（非播客模式）
+ * - 播放控制面板集成
+ * - 字幕显示支持
+ * - 播放速度调节
+ *
+ * 技术特性：
+ * - 基于 ReactPlayer 封装，支持多种视频格式
+ * - 高性能背景视频帧渲染
+ * - 精确的播放时间同步
+ * - 防抖动跳转机制
+ * - 内存优化的视频帧处理
+ */
+
 import React, { ReactElement, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+
+// 状态管理
 import usePlayerController from '../hooks/usePlayerController';
 import useFile from '../hooks/useFile';
-import PlayerControlPanel from './PlayerControlPanel';
-import { SeekAction } from '../hooks/usePlayerControllerSlices/SliceTypes';
-import PlayerSubtitlePanel from '@/fronted/components/playerSubtitle/PlayerSubtitlePanel';
 import useLayout from '@/fronted/hooks/useLayout';
+
+// 播放器相关组件
+import PlayerControlPanel from './PlayerControlPanel';
+import PlayerSubtitlePanel from '@/fronted/components/playerSubtitle/PlayerSubtitlePanel';
 import PlaySpeedToaster from '@/fronted/components/PlaySpeedToaster';
-import { cn } from '@/fronted/lib/utils';
 import PlayerToaster from '@/fronted/components/PlayerToaster';
+
+// 类型定义和工具
+import { SeekAction } from '../hooks/usePlayerControllerSlices/SliceTypes';
+import { cn } from '@/fronted/lib/utils';
 import UrlUtil from '@/common/utils/UrlUtil';
 import StrUtil from '@/common/utils/str-util';
+
+// 播放器库
 import ReactPlayer from 'react-player/file';
 
+/**
+ * Electron API 实例
+ * 提供与主进程通信的能力
+ */
 const api = window.electron;
 
 export default function Player({ className }: { className?: string }): ReactElement {

@@ -1,41 +1,117 @@
+/**
+ * DashPlayer 首页组件
+ *
+ * 职责：
+ * - 应用入口界面和导航中心
+ * - 观看历史记录展示
+ * - 文件和文件夹选择功能
+ * - 应用窗口大小管理
+ * - 视频格式兼容性检查
+ *
+ * 功能特性：
+ * - 支持单个文件选择播放
+ * - 支持文件夹批量导入
+ * - 显示最近观看的视频记录
+ * - 智能视频格式检查和转换提示
+ * - 响应式布局和用户交互优化
+ */
+
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+
+// UI 组件
 import TitleBar from '@/fronted/components/TitleBar/TitleBar';
 import { cn } from '@/fronted/lib/utils';
-import useLayout from '@/fronted/hooks/useLayout';
-import useFile from '@/fronted/hooks/useFile';
-import ProjectListCard from '@/fronted/components/fileBowser/project-list-card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/fronted/components/ui/card';
 import { Button } from '@/fronted/components/ui/button';
-import useSWR from 'swr';
-import { apiPath, SWR_KEY } from '@/fronted/lib/swr-util';
-import ProjectListItem from '@/fronted/components/fileBowser/project-list-item';
 import { ChevronsDown } from 'lucide-react';
+
+// 文件选择组件
+import ProjectListCard from '@/fronted/components/fileBowser/project-list-card';
+import ProjectListItem from '@/fronted/components/fileBowser/project-list-item';
 import FolderSelector, { FolderSelectAction } from '@/fronted/components/fileBowser/FolderSelector';
 import FileSelector, { FileAction } from '@/fronted/components/fileBowser/FileSelector';
-import { toast } from 'sonner';
-import useConvert from '@/fronted/hooks/useConvert';
 
+// 状态管理和工具
+import useLayout from '@/fronted/hooks/useLayout';
+import useFile from '@/fronted/hooks/useFile';
+import useConvert from '@/fronted/hooks/useConvert';
+import useSWR from 'swr';
+import { apiPath, SWR_KEY } from '@/fronted/lib/swr-util';
+import { toast } from 'sonner';
+
+/**
+ * Electron API 实例
+ * 提供与主进程通信的能力
+ */
 const api = window.electron;
+
+/**
+ * 首页组件主体
+ */
 const HomePage = () => {
+    // 路由导航钩子
     const navigate = useNavigate();
+
+    // 布局状态管理
     const changeSideBar = useLayout((s) => s.changeSideBar);
 
+    /**
+     * 处理视频历史记录点击事件
+     *
+     * 功能：
+     * - 切换窗口到播放器模式
+     * - 隐藏侧边栏
+     * - 导航到播放器页面并传入视频ID
+     *
+     * @param vId - 视频ID，用于播放器页面加载对应视频
+     */
     async function handleClickById(vId: string) {
+        // 切换窗口大小到播放器模式
         await api.call('system/window-size/change', 'player');
+        // 隐藏侧边栏以提供更佳的播放体验
         changeSideBar(false);
+        // 导航到播放器页面
         navigate(`/player/${vId}`);
     }
 
-    const { data: vps } = useSWR(apiPath('watch-history/list'), () => api.call('watch-history/list'));
+    /**
+     * 获取观看历史记录数据
+     * 使用 SWR 进行数据缓存和状态管理
+     * 自动处理加载状态、错误状态和数据更新
+     */
+    const { data: vps } = useSWR(
+        apiPath('watch-history/list'),
+        () => api.call('watch-history/list')
+    );
+
+    // 获取文件状态清除函数
     const clear = useFile((s) => s.clear);
+
+    // 控制显示的历史记录数量
     const [num, setNum] = React.useState(4);
-    // 从第四个开始截取num个
+
+    /**
+     * 计算要显示的额外历史记录
+     * 从第4个开始（跳过前3个卡片显示的）
+     */
     const rest = vps?.slice(3, num + 3);
+
+    /**
+     * 页面初始化效果
+     *
+     * 功能：
+     * - 设置窗口为首页模式
+     * - 清除之前的文件状态
+     */
     useEffect(() => {
+        // 设置窗口大小为首页模式
         api.call('system/window-size/change', 'home').then();
+        // 清除文件状态，确保干净的状态
         clear();
     }, [clear]);
+
+    // 调试日志：监控数据状态
     console.log('vpsl', vps?.length, rest?.length, num);
     return (
         <div className="flex h-screen w-full flex-col text-foreground bg-muted/40">
