@@ -19,6 +19,7 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import { SettingKey } from './common/types/store_schema';
 import { ApiDefinitions, ApiMap } from '@/common/api/api-def';
+import {DpTask} from "@/backend/db/tables/dpTask";
 
 /**
  * IPC 通信通道类型定义
@@ -33,7 +34,9 @@ export type Channels =
     | 'main-state'
     | 'store-update'
     | 'error-msg'
-    | 'info-msg';
+    | 'info-msg'
+    | 'dp-task-update';
+
 /**
  * IPC 事件监听器包装函数
  *
@@ -106,6 +109,19 @@ const electronHandler = {
      */
     onInfoMsg: (func: (info: string) => void) => {
         return on('info-msg', func as never);
+    },
+    /**
+     * 监听任务更新事件
+     *
+     * 当后端任务状态发生变化时，会触发此回调
+     * 用于实时更新界面中的任务进度和状态
+     *
+     * @param func - 任务更新回调函数，接收 DpTask 对象
+     * @returns 取消监听的函数
+     */
+    onTaskUpdate: (func: (task: DpTask) => void) => {
+        console.log('onTaskUpdate');
+        return on('dp-task-update', func as never);
     },
 
     /**

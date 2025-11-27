@@ -212,6 +212,12 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
             return null;
         }
         let srtFile = history.srt_file;
+        if (StrUtil.isNotBlank(srtFile)) {
+            const exists = await FileUtil.fileExists(srtFile);
+            if (!exists) {
+                srtFile = '';
+            }
+        }
         if (StrUtil.isBlank(srtFile)) {
             const srtFiles = await this.listSrtFiles(base_path);
             srtFile = MatchSrt.matchOne(filePath, srtFiles);
@@ -423,5 +429,35 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
                 await FileUtil.deleteFile(record.srt_file);
             }
         }
+    }
+
+    public async getNextVideo(currentId: string): Promise<WatchHistoryVO | null> {
+        const [currentRecord] = await db.select().from(watchHistory)
+            .where(eq(watchHistory.id, currentId));
+
+        if (!currentRecord) {
+            return null;
+        }
+
+        const folderVideos = await db.select().from(watchHistory)
+            .where(
+                and(
+                    eq(watchHistory.base_path, currentRecord.base_path),
+                    eq(watchHistory.project_type, WatchHistoryType.DIRECTORY)
+                )
+            ).orderBy(asc(watchHistory.file_name));
+
+        if (CollUtil.isEmpty(folderVideos)) {
+            return null;
+        }
+
+        const currentIndex = folderVideos.findIndex(video => video.id === currentId);
+
+        if (currentIndex >= 0 && currentIndex < folderVideos.length - 1) {
+            const nextVideo = folderVideos[currentIndex + 1];
+            return await this.buildVoFromFile(nextVideo);
+        }
+
+        return null;
     }
 }

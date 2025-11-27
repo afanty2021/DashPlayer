@@ -55,6 +55,7 @@ import { ErrorBoundary } from 'react-error-boundary';
 import FallBack from '@/fronted/components/FallBack';
 import Eb from '@/fronted/components/Eb';
 import GlobalShortCut from '@/fronted/components/short-cut/GlobalShortCut';
+import {startListeningToDpTasks} from "@/fronted/hooks/useDpTaskCenter";
 
 // 通知系统
 import { Toaster } from '@/fronted/components/ui/sonner';
@@ -254,3 +255,4 @@ api.onErrorMsg((error: Error) => {
 api.onInfoMsg((info: string) => {
     toast.success(info);
 });
+startListeningToDpTasks();

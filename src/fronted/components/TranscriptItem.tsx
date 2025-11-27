@@ -1,13 +1,13 @@
-import {TableCell, TableRow} from '@/fronted/components/ui/table';
-import {cn} from "@/fronted/lib/utils";
-import {Button} from '@/fronted/components/ui/button';
+import { TableCell, TableRow } from '@/fronted/components/ui/table';
+import { cn } from '@/fronted/lib/utils';
+import { Button } from '@/fronted/components/ui/button';
 import React from 'react';
-import {DpTaskState} from '@/backend/db/tables/dpTask';
+import { DpTaskState } from '@/backend/db/tables/dpTask';
 import useSWR from 'swr';
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/fronted/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/fronted/components/ui/tooltip';
 import TimeUtil from '@/common/utils/TimeUtil';
-import Util from "@/common/utils/Util";
-import toast from "react-hot-toast";
+import Util from '@/common/utils/Util';
+import toast from 'react-hot-toast';
 import useDpTaskViewer from '@/fronted/hooks/useDpTaskViewer';
 
 export interface TranscriptItemProps {
@@ -19,26 +19,19 @@ export interface TranscriptItemProps {
 
 const api = window.electron;
 
-const TranscriptItem = ({file, taskId, onStart, onDelete}: TranscriptItemProps) => {
+const TranscriptItem = ({ file, taskId, onStart, onDelete }: TranscriptItemProps) => {
     const [started, setStarted] = React.useState(false);
     const { task } = useDpTaskViewer(taskId);
-    const {data: fInfo} = useSWR(['system/path-info', file], ([_k, f]) => api.call('system/path-info', f), {
+    const { data: fInfo } = useSWR(['system/path-info', file], ([_k, f]) => api.call('system/path-info', f), {
         fallbackData: {
             baseName: '',
             dirName: '',
             extName: ''
         }
     });
-    console.log('taskk', task)
+    console.log('taskk', task);
 
     let msg = task?.progress ?? '未开始';
-    if (task?.status === DpTaskState.IN_PROGRESS) {
-        console.log(task.created_at, task.updated_at);
-        const createdAt = TimeUtil.isoToDate(task.created_at).getTime();
-        const now = new Date().getTime();
-        const duration = Math.floor((now - createdAt) / 1000);
-        msg = `${task.progress} ${duration}s`;
-    }
     if (task?.status === DpTaskState.DONE) {
         const updatedAt = TimeUtil.isoToDate(task.updated_at).getTime();
         const createdAt = TimeUtil.isoToDate(task.created_at).getTime();
@@ -67,17 +60,14 @@ const TranscriptItem = ({file, taskId, onStart, onDelete}: TranscriptItemProps) 
                         onStart();
                         setStarted(true);
                     }}
-                    disabled={(task?.status ?? DpTaskState.INIT) !== DpTaskState.INIT || (started && task === null)}
+                    disabled={Util.cmpTaskState(task, [DpTaskState.IN_PROGRESS] )|| (started && task === null)}
                     size={'sm'} className={'mx-auto'}>转录</Button>
                 <Button
                     onClick={() => {
                         if (Util.cmpTaskState(task, [DpTaskState.DONE, DpTaskState.CANCELLED, DpTaskState.FAILED, 'none'])) {
                             onDelete();
                         } else {
-                            toast('发送了取消请求',{
-                                icon: '🚀'
-                            });
-                            api.call('dp-task/cancel', taskId);
+                            api.call('dp-task/cancel', taskId ?? undefined);
                         }
                     }}
                     variant={'secondary'}
