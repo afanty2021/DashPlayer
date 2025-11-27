@@ -95,3 +95,7 @@ out/
 
 lib/
 /dist/
+
+# Claude Code AI Flow and Swarm coordination data
+.claude-flow/
+.swarm/
