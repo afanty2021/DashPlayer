@@ -164,6 +164,18 @@ const electronHandler = {
             console.error('IPC 调用失败:', e);
             return null;
         }
+    },
+
+    /**
+     * invoke 方法别名，提供与 call 相同的功能
+     *
+     * 为了保持代码兼容性而添加的别名方法
+     */
+    invoke: async function invok<K extends keyof ApiMap>(
+        path: K,
+        param?: ApiDefinitions[K]['params']
+    ): Promise<ApiDefinitions[K]['return']> {
+        return ipcRenderer.invoke(path, param);
     }
 };
 /**

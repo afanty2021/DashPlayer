@@ -166,6 +166,13 @@ interface TagDef {
     'tag/search': { params: string, return: Tag[] };
 }
 
+interface WhisperDef {
+    'whisper:test-environment': { params: { pythonPath?: string }, return: { success: boolean; error?: string } };
+    'whisper:install': { params: { pythonPath?: string }, return: { success: boolean; error?: string } };
+    'whisper:get-available-models': { params: void, return: { models: string[], current: string } };
+    'whisper:test-transcription': { params: { audioFile: string; model?: string; pythonPath?: string }, return: { success: boolean; result?: any; error?: string } };
+}
+
 // 使用交叉类型合并 ApiDefinitions 和 ExtraApiDefinition
 export type ApiDefinitions = ApiDefinition
     & AiFuncDef
@@ -180,7 +187,8 @@ export type ApiDefinitions = ApiDefinition
     & DownloadVideoDef
     & ConvertDef
     & FavoriteClipsDef
-    & TagDef;
+    & TagDef
+    & WhisperDef;
 
 // 更新 ApiMap 类型以使用 CombinedApiDefinitions
 export type ApiMap = {

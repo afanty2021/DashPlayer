@@ -41,7 +41,16 @@ export default class StrUtil {
      * ```
      */
     public static isBlank(str: string | undefined | null): str is undefined | null | '' {
-        return str === undefined || str === null || str.trim() === '';
+        // 首先检查 null 和 undefined
+        if (str === undefined || str === null) {
+            return true;
+        }
+
+        // 确保值是字符串类型，防止其他类型导致的错误
+        const stringValue = typeof str === 'string' ? str : String(str);
+
+        // 检查空字符串或只包含空白字符的字符串
+        return stringValue.trim() === '';
     }
 
     /**

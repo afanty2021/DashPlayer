@@ -6,14 +6,22 @@ import StrUtil from '@/common/utils/str-util';
 const store = new Store();
 
 export const storeSet = (key: SettingKey, value: string | undefined | null): boolean => {
-    if (StrUtil.isBlank(value)) {
-        value = SettingKeyObj[key];
+    // 将值转换为字符串，避免布尔值导致的 trim 错误
+    let stringValue = value;
+    if (typeof value === 'boolean') {
+        stringValue = value.toString();
+    } else if (value === null || value === undefined) {
+        stringValue = '';
+    }
+
+    if (StrUtil.isBlank(stringValue)) {
+        stringValue = SettingKeyObj[key];
     }
     const oldValue = store.get(key, SettingKeyObj[key]);
-    if (oldValue === value) {
+    if (oldValue === stringValue) {
        return false;
     }
-    store.set(key, value);
+    store.set(key, stringValue);
     return true;
 };
 

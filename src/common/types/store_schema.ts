@@ -29,6 +29,13 @@ export const SettingKeyObj = {
     'apiKeys.openAi.endpoint': '',
     'apiKeys.openAi.stream': 'on',
     'model.gpt.default': 'gpt-4o-mini',
+    // Whisper 配置
+    'whisper.provider': 'openai', // 'openai' | 'local' | 'aliyun'
+    'whisper.local.model': 'medium.en', // 'tiny.en' | 'base.en' | 'small.en' | 'medium.en' | 'large-v3' | 'large-v3-turbo'
+    'whisper.local.pythonPath': '/opt/homebrew/Caskroom/miniconda/base/envs/Whisper-env/bin/python3.11', // Python解释器路径
+    'whisper.local.device': 'auto', // 'auto' | 'cpu' | 'mps' | 'cuda'
+    'whisper.local.enableCache': true, // 是否启用模型缓存
+    'whisper.local.maxConcurrency': 2, // 最大并发转录数
     'appearance.theme': 'light',
     'appearance.fontSize': 'fontSizeLarge',
     'storage.path': '',

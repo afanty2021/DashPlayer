@@ -42,6 +42,7 @@ import StorageSetting from '@/fronted/pages/setting/StorageSetting';
 import CheckUpdate from '@/fronted/pages/setting/CheckUpdate';
 import AppearanceSetting from '@/fronted/pages/setting/AppearanceSetting';
 import OpenAiSetting from '@/fronted/pages/setting/OpenAiSetting';
+import WhisperSetting from '@/fronted/pages/setting/WhisperSetting';
 
 // 功能页面组件
 import Transcript from '@/fronted/pages/transcript/Transcript';
@@ -148,7 +149,7 @@ const App = () => {
                                 />
 
                                 {/* 关于页面 */}
-                                <Route path="about" element={<Eb key="about"><About />} />
+                                <Route path="about" element={<Eb><About /></Eb>} />
 
                                 {/* 设置页面组 - 嵌套路由结构 */}
                                 <Route path="settings" element={<SettingLayout />}>
@@ -180,6 +181,12 @@ const App = () => {
                                     <Route
                                         path="open-ai"
                                         element={<Eb><OpenAiSetting /></Eb>}
+                                    />
+
+                                    {/* Whisper设置页面 */}
+                                    <Route
+                                        path="whisper"
+                                        element={<Eb><WhisperSetting /></Eb>}
                                     />
 
                                     {/* 存储设置页面 */}

@@ -11,7 +11,7 @@ import {
 import {cn} from "@/fronted/lib/utils";
 import Separator from '@/fronted/components/Separtor';
 import {buttonVariants} from "@/fronted/components/ui/button";
-import { Bot, Command, Compass, Database, Languages, Palette, Server, WholeWord } from 'lucide-react';
+import { Bot, Command, Compass, Database, Languages, Mic, Palette, Server, WholeWord } from 'lucide-react';
 
 export type SettingType =
     | 'you-dao'
@@ -20,7 +20,8 @@ export type SettingType =
     | 'shortcut'
     | 'storage'
     | 'update'
-    | 'appearance';
+    | 'appearance'
+    | 'whisper';
 const Sidebar = () => {
     const location = useLocation();
     const ele = (name: string, key: SettingType, icon: ReactElement) => {
@@ -72,6 +73,7 @@ const Sidebar = () => {
             {ele('字幕翻译', 'tenant', <Languages />)}
             {ele('查单词', 'you-dao', <WholeWord />)}
             {ele('OpenAI', 'open-ai', <Bot />)}
+            {ele('语音识别', 'whisper', <Mic />)}
             {ele('存储', 'storage', <Database />)}
             {ele('版本更新', 'update', <Compass />)}
         </div>
@@ -99,7 +101,7 @@ const SettingLayout = () => {
                 <aside className="w-56 flex-shrink-0">
                     <Sidebar/>
                 </aside>
-                <main role="main" className="w-[1000px] overflow-hidden h-full">
+                <main role="main" className="flex-1 overflow-y-auto h-full max-w-[1000px]">
                     <Outlet/>
                 </main>
             </div>

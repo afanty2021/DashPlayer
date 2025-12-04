@@ -18,6 +18,7 @@ import MediaController from '@/backend/controllers/MediaController';
 import StorageController from '@/backend/controllers/StorageController';
 import SystemController from '@/backend/controllers/SystemController';
 import SubtitleController from '@/backend/controllers/SubtitleController';
+import WhisperController from '@/backend/controllers/WhisperController';
 import SystemServiceImpl from '@/backend/services/impl/SystemServiceImpl';
 import SystemService from '@/backend/services/SystemService';
 import { CacheServiceImpl } from '@/backend/services/impl/CacheService';
@@ -59,6 +60,7 @@ import DlVideoServiceImpl from '@/backend/services/impl/DlVideoServiceImpl';
 import WatchHistoryService from '@/backend/services/WatchHistoryService';
 import WatchHistoryServiceImpl from '@/backend/services/impl/WatchHistoryServiceImpl';
 import WatchHistoryController from '@/backend/controllers/WatchHistoryController';
+import WhisperController from '@/backend/controllers/WhisperController';
 import { OpenAIServiceImpl } from '@/backend/services/impl/OpenAIServiceImpl';
 import { OpenAiService } from '@/backend/services/OpenAiService';
 import AiProviderService from '@/backend/services/AiProviderService';
@@ -83,6 +85,7 @@ container.bind<Controller>(TYPES.Controller).to(StorageController).inSingletonSc
 container.bind<Controller>(TYPES.Controller).to(SystemController).inSingletonScope();
 container.bind<Controller>(TYPES.Controller).to(SubtitleController).inSingletonScope();
 container.bind<Controller>(TYPES.Controller).to(WatchHistoryController).inSingletonScope();
+container.bind<Controller>(TYPES.Controller).to(WhisperController).inSingletonScope();
 // Services
 container.bind<ClipOssService>(TYPES.ClipOssService).to(ClipOssServiceImpl).inSingletonScope();
 container.bind<FavouriteClipsService>(TYPES.FavouriteClips).to(FavouriteClipsServiceImpl).inSingletonScope();

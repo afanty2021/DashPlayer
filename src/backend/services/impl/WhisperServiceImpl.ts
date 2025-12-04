@@ -9,6 +9,8 @@ import FfmpegService from '@/backend/services/FfmpegService';
 import WhisperService from '@/backend/services/WhisperService';
 import { TypeGuards } from '@/backend/utils/TypeGuards';
 import OpenAiWhisperRequest from '@/backend/objs/OpenAiWhisperRequest';
+import LocalWhisperRequest from '@/backend/objs/LocalWhisperRequest';
+import { storeGet } from '@/backend/store';
 import LocationService, { LocationType } from '@/backend/services/LocationService';
 import dpLog from '@/backend/ioc/logger';
 import { OpenAiService } from '@/backend/services/OpenAiService';
@@ -17,6 +19,7 @@ import { SplitChunk, WhisperContext, WhisperContextSchema, WhisperResponse } fro
 import { ConfigTender } from '@/backend/objs/config-tender';
 import FileUtil from '@/backend/utils/FileUtil';
 import { CancelByUserError, WhisperResponseFormatError } from '@/backend/errors/errors';
+import { Cancelable } from '@/common/interfaces';
 import SrtUtil, {SrtLine} from "@/common/utils/SrtUtil";
 
 /**
@@ -193,12 +196,29 @@ class WhisperServiceImpl implements WhisperService {
      */
     @WaitLock('whisper')
     private async whisper(taskId: number, chunk: SplitChunk): Promise<WhisperResponse> {
-        const openAi = this.openAiService.getOpenAi();
-        const req = OpenAiWhisperRequest.build(openAi, chunk.filePath);
-        if (TypeGuards.isNull(req)) {
-            this.dpTaskService.fail(taskId, { progress: '未设置 OpenAI 密钥' });
-            throw new Error('未设置 OpenAI 密钥');
+        const provider = storeGet('whisper.provider');
+        let req: OpenAiWhisperRequest | LocalWhisperRequest | null = null;
+
+        if (provider === 'local') {
+            // 使用本地Whisper
+            const model = storeGet('whisper.local.model') || 'medium.en';
+            req = LocalWhisperRequest.build(chunk.filePath, model);
+            if (TypeGuards.isNull(req)) {
+                this.dpTaskService.fail(taskId, { progress: '本地Whisper不可用，请检查Python环境和依赖' });
+                throw new Error('本地Whisper不可用，请检查Python环境和依赖');
+            }
+            dpLog.info(`[WhisperService] 使用本地Whisper转录: ${chunk.filePath} (模型: ${model})`);
+        } else {
+            // 使用OpenAI Whisper（默认）
+            const openAi = this.openAiService.getOpenAi();
+            req = OpenAiWhisperRequest.build(openAi, chunk.filePath);
+            if (TypeGuards.isNull(req)) {
+                this.dpTaskService.fail(taskId, { progress: '未设置 OpenAI 密钥' });
+                throw new Error('未设置 OpenAI 密钥');
+            }
+            dpLog.info(`[WhisperService] 使用OpenAI Whisper转录: ${chunk.filePath}`);
         }
+
         this.dpTaskService.registerTask(taskId, req);
         const response = await req.invoke();
         return { ...response };
