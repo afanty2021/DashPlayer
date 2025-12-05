@@ -89,7 +89,7 @@ const SettingLayout = () => {
         >
             <div className={cn('p-4')}>
                 <h1 className={cn('text-4xl font-bold font-serif')}>
-                    Settings
+                    设置
                 </h1>
                 <h2 className={cn('text-xl text-secondary-foreground mt-2 mb-4')}>
                     Dash Player

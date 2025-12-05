@@ -38,7 +38,7 @@ const AppearanceSetting = () => {
             <Header title="外观" description="设置主题与字号" />
             <Separator orientation="horizontal" className="px-0" />
             <ItemWrapper>
-                <Title title="Theme" description="设置主题" />
+                <Title title="主题" description="设置主题" />
                 <div className="px-3 py-2 h-60 flex-shrink-0  flex overflow-x-scroll scrollbar-thin gap-8 scrollbar-thumb-rounded scrollbar-thumb-gray-400/25">
                     {['dark', 'light'].map((t) => {
                         return (
@@ -68,7 +68,7 @@ const AppearanceSetting = () => {
                         );
                     })}
                 </div>
-                <Title title="Font Size" description="设置字号" />
+                <Title title="字号" description="设置字号" />
                 <SliderInput
                     title="字体大小"
                     values={['小', '中', '大']}

@@ -11,6 +11,7 @@
  */
 
 import { app, BrowserWindow, protocol, net } from 'electron';
+import * as fs from 'fs';
 import path from 'path';
 import registerHandler from '@/backend/dispatcher';
 import runMigrate from '@/backend/db/migrate';
@@ -118,10 +119,28 @@ app.on('ready', async () => {
      */
     protocol.registerFileProtocol(DP_FILE, (request, callback) => {
         // 从协议 URL 中提取文件路径
-        const url: string = request.url.replace(`${DP_FILE}://`, '');
+        let url: string = request.url.replace(`${DP_FILE}://`, '');
+
+        // 修复：不要移除路径开头的斜杠，因为它可能是绝对路径
+        // 如果路径不是以 / 开头且不是 Windows 驱动器格式，才添加 /
+        // 这样可以确保 Unix 系统的绝对路径正确处理
+        if (!url.startsWith('/') && !url.match(/^[A-Za-z]:/)) {
+            url = '/' + url;
+        }
+
         try {
             // 解码 URI 编码的文件路径并返回
-            return callback(decodeURIComponent(url));
+            const decodedPath = decodeURIComponent(url);
+            console.log('DP_FILE 请求:', request.url);
+            console.log('解析后的文件路径:', decodedPath);
+
+            // 验证文件是否存在
+            if (fs.existsSync(decodedPath)) {
+                return callback(decodedPath);
+            } else {
+                console.error('文件不存在:', decodedPath);
+                return callback('');
+            }
         } catch (error) {
             // 错误处理：记录错误并返回空路径
             console.error('文件协议解析错误:', error);
@@ -149,12 +168,8 @@ app.on('ready', async () => {
             // HTTP/HTTPS 请求：直接转发到网络
             return net.fetch(url);
         } else {
-            // 本地文件请求：确保路径安全性
-            const parts = url.split(path.sep);
-            // 对路径各部分进行 URI 编码，防止路径注入攻击
-            const encodedParts = parts.map(part => encodeURIComponent(part));
-            const encodedUrl = encodedParts.join(path.sep);
-            return net.fetch(`file:///${encodedUrl}`);
+            // 本地文件请求：直接使用文件路径
+            return net.fetch(`file://${url}`);
         }
     });
 });

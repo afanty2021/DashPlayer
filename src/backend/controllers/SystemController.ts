@@ -42,7 +42,7 @@ export default class SystemController implements Controller {
         const files = await dialog.showOpenDialog({
             properties: ['openFile', 'multiSelections'],
             filters: [{
-                name: 'Files',
+                name: '文件',
                 extensions: f
             }]
         });

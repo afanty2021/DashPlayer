@@ -37,6 +37,9 @@ const config = {
         }),
         new MakerDMG({
             icon: './assets/icons/icon.icns',
+            // 简化配置以避免macos-alias问题
+            background: null,
+            backgroundColor: '#ffffff',
             format: 'ULFO',
         }),
         new MakerRpm({
