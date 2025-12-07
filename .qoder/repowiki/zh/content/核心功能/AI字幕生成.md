@@ -7,12 +7,21 @@
 - [TencentProvider.ts](file://src/backend/services/impl/clients/TencentProvider.ts)
 - [YouDaoProvider.ts](file://src/backend/services/impl/clients/YouDaoProvider.ts)
 - [OpenAiWhisperRequest.ts](file://src/backend/objs/OpenAiWhisperRequest.ts)
+- [LocalWhisperRequest.ts](file://src/backend/objs/LocalWhisperRequest.ts)
+- [WhisperController.ts](file://src/backend/controllers/WhisperController.ts)
 - [SentenceStruct.ts](file://src/common/types/SentenceStruct.ts)
 - [PlayerSubtitle.tsx](file://src/fronted/components/playerSubtitle/PlayerSubtitle.tsx)
 - [PlayerSubtitlePanel.tsx](file://src/fronted/components/playerSubtitle/PlayerSubtitlePanel.tsx)
 - [SubtitleServiceImpl.ts](file://src/backend/services/impl/SubtitleServiceImpl.ts)
 - [SrtTimeAdjustServiceImpl.ts](file://src/backend/services/impl/SrtTimeAdjustServiceImpl.ts)
 </cite>
+
+## 更新摘要
+**变更内容**  
+- 新增本地Whisper服务支持说明
+- 增加本地模型处理流程、缓存策略和防重复处理机制
+- 更新系统架构图以包含本地Whisper选项
+- 扩展配置指南以包含本地部署配置
 
 ## 目录
 1. [简介](#简介)
@@ -27,7 +36,7 @@
 10. [结论](#结论)
 
 ## 简介
-DashPlayer 提供了基于人工智能的字幕生成功能，支持通过 OpenAI Whisper、腾讯云语音识别和有道语音识别等多种服务将视频音频转换为文本字幕。该功能不仅实现了高精度的语音转录，还支持双语字幕显示、时间戳手动校正以及与视频播放的精确同步。用户可通过配置不同服务商的 API 密钥来启用相应的语音识别服务，系统会根据配置自动选择最优方案进行处理。
+DashPlayer 提供了基于人工智能的字幕生成功能，支持通过 OpenAI Whisper、腾讯云语音识别、有道语音识别以及本地Whisper模型等多种服务将视频音频转换为文本字幕。该功能不仅实现了高精度的语音转录，还支持双语字幕显示、时间戳手动校正以及与视频播放的精确同步。用户可通过配置不同服务商的 API 密钥或本地Python环境来启用相应的语音识别服务，系统会根据配置自动选择最优方案进行处理。
 
 ## 系统架构与核心流程
 AI 字幕生成功能的核心流程包括音频提取、语音识别、字幕文件生成和前端渲染四个主要阶段。整个流程由 `SubtitleController` 发起，调用 `WhisperServiceImpl` 或第三方提供商（如 `TencentProvider`、`YouDaoProvider`）完成语音识别任务，并最终在前端 `PlayerSubtitle` 组件中实现字幕的实时渲染。
@@ -39,15 +48,18 @@ B --> C{选择语音识别服务}
 C --> |OpenAI| D[WhisperServiceImpl]
 C --> |腾讯云| E[TencentProvider]
 C --> |有道| F[YouDaoProvider]
-D --> G[OpenAiWhisperRequest]
-E --> H[TencentClient]
-F --> I[YouDaoClient]
-G --> J[生成SRT文件]
-H --> J
-I --> J
-J --> K[SubtitleServiceImpl]
-K --> L[前端PlayerSubtitle组件]
-L --> M[视频播放同步显示]
+C --> |本地Whisper| G[LocalWhisperRequest]
+D --> H[OpenAiWhisperRequest]
+E --> I[TencentClient]
+F --> J[YouDaoClient]
+G --> K[whisper_runner.py]
+H --> L[生成SRT文件]
+I --> L
+J --> L
+K --> L
+L --> M[SubtitleServiceImpl]
+M --> N[前端PlayerSubtitle组件]
+N --> O[视频播放同步显示]
 ```
 
 **Diagram sources**  
@@ -55,31 +67,35 @@ L --> M[视频播放同步显示]
 - [WhisperServiceImpl.ts](file://src/backend/services/impl/WhisperServiceImpl.ts#L46-L155)
 - [TencentProvider.ts](file://src/backend/services/impl/clients/TencentProvider.ts#L7-L42)
 - [YouDaoProvider.ts](file://src/backend/services/impl/clients/YouDaoProvider.ts#L7-L31)
+- [LocalWhisperRequest.ts](file://src/backend/objs/LocalWhisperRequest.ts#L21-L147)
 
 **Section sources**  
 - [SubtitleController.ts](file://src/backend/controllers/SubtitleController.ts#L8-L21)
 - [WhisperServiceImpl.ts](file://src/backend/services/impl/WhisperServiceImpl.ts#L46-L155)
 
 ## 字幕生成服务实现
-`WhisperServiceImpl` 是 OpenAI Whisper 服务的核心实现类，负责将视频文件中的音频部分提取并分段处理，然后调用 OpenAI 的 Whisper 模型进行语音识别。
+`WhisperServiceImpl` 是语音识别服务的核心实现类，负责将视频文件中的音频部分提取并分段处理，然后调用相应的语音识别服务进行转录。系统支持多种语音识别服务，包括 OpenAI Whisper、腾讯云、有道以及本地Whisper模型。
 
-该服务首先使用 FFmpeg 将视频文件转换为音频格式，并将其分割成不超过 60 秒的片段，以避免单次请求超时。每个音频片段会被独立提交给 Whisper API 进行转录。为了提高成功率，系统实现了三次重试机制（`whisperThreeTimes`），在每次失败后尝试重新发送请求。
+该服务首先使用 FFmpeg 将视频文件转换为音频格式，并将其分割成不超过 60 秒的片段，以避免单次请求超时。每个音频片段会被独立提交给选定的语音识别服务进行转录。为了提高成功率，系统实现了三次重试机制（`whisperThreeTimes`），在每次失败后尝试重新发送请求。
+
+当使用本地Whisper模型时，系统通过 `LocalWhisperRequest` 类调用 Python 脚本 `whisper_runner.py` 执行转录任务。该脚本会自动检测最佳设备（MPS、CUDA 或 CPU），并加载指定的Whisper模型进行处理。
 
 ```mermaid
 sequenceDiagram
 participant 用户
 participant SubtitleController
 participant WhisperServiceImpl
-participant OpenAiWhisperRequest
-participant OpenAI
+participant LocalWhisperRequest
+participant whisper_runner.py
 用户->>SubtitleController : 请求生成字幕
 SubtitleController->>WhisperServiceImpl : 调用transcript方法
 WhisperServiceImpl->>WhisperServiceImpl : convertAndSplit(分割音频)
 WhisperServiceImpl->>WhisperServiceImpl : whisperThreeTimes(三次重试)
-WhisperServiceImpl->>OpenAiWhisperRequest : 构建请求
-OpenAiWhisperRequest->>OpenAI : 发送语音识别请求
-OpenAI-->>OpenAiWhisperRequest : 返回转录结果
-OpenAiWhisperRequest-->>WhisperServiceImpl : 返回WhisperResponse
+WhisperServiceImpl->>LocalWhisperRequest : 构建请求
+LocalWhisperRequest->>whisper_runner.py : 执行Python脚本
+whisper_runner.py->>whisper_runner.py : 加载模型并转录
+whisper_runner.py-->>LocalWhisperRequest : 返回JSON结果
+LocalWhisperRequest-->>WhisperServiceImpl : 返回WhisperResponse
 WhisperServiceImpl->>WhisperServiceImpl : 合并所有片段结果
 WhisperServiceImpl->>文件系统 : 写入.srt字幕文件
 WhisperServiceImpl-->>SubtitleController : 完成通知
@@ -88,29 +104,31 @@ SubtitleController-->>用户 : 字幕生成完成
 
 **Diagram sources**  
 - [WhisperServiceImpl.ts](file://src/backend/services/impl/WhisperServiceImpl.ts#L46-L155)
-- [OpenAiWhisperRequest.ts](file://src/backend/objs/OpenAiWhisperRequest.ts#L35-L93)
+- [LocalWhisperRequest.ts](file://src/backend/objs/LocalWhisperRequest.ts#L65-L134)
+- [whisper_runner.py](file://src/backend/scripts/whisper_runner.py#L140-L205)
 
 **Section sources**  
 - [WhisperServiceImpl.ts](file://src/backend/services/impl/WhisperServiceImpl.ts#L46-L155)
 
 ## 语音识别请求构建
-`OpenAiWhisperRequest` 类负责构建和发送对 OpenAI Whisper API 的请求。该类通过静态方法 `build` 创建实例，检查必要的配置项（如 API 密钥和端点地址）是否已设置。若配置缺失，则返回 null 并记录错误。
+`LocalWhisperRequest` 类负责构建和执行本地Whisper语音识别请求。该类通过静态方法 `build` 创建实例，检查必要的配置项（如Python环境和音频文件）是否可用。若配置缺失，则返回 null 并记录错误。
 
 请求参数包括：
-- **file**: 音频文件流
-- **model**: 使用 "whisper-1" 模型
-- **response_format**: 设置为 "verbose_json" 以获取详细响应
-- **timestamp_granularities**: 包含 ["segment"] 以获得分段时间戳
+- **file**: 音频文件路径
+- **model**: 指定使用的Whisper模型（如 medium.en）
+- **language**: 指定音频语言
+- **task**: 任务类型（转录或翻译）
+- **output-format**: 输出格式（JSON）
 
-系统还实现了速率限制器（`RateLimiter`）来控制请求频率，防止因频繁调用而导致被限流或封禁。
+系统通过 `spawn` 方法调用 Python 脚本 `whisper_runner.py` 执行转录任务，并通过标准输出获取JSON格式的转录结果。同时实现了速率限制器（`@WaitRateLimit('local-whisper')`）来控制请求频率。
 
 ```mermaid
 classDiagram
-class OpenAiWhisperRequest {
+class LocalWhisperRequest {
 -file : string
--abortController : AbortController
--openAi : OpenAI
-+static build(openai : OpenAI, file : string) : OpenAiWhisperRequest | null
+-model : string
+-pythonProcess : ChildProcess
++static build(file : string, model : string) : LocalWhisperRequest | null
 +invoke() : Promise~WhisperResponse~
 +cancel() : void
 }
@@ -127,14 +145,14 @@ class Segment {
 +end : number
 +text : string
 }
-OpenAiWhisperRequest --> WhisperResponse : 返回
+LocalWhisperRequest --> WhisperResponse : 返回
 ```
 
 **Diagram sources**  
-- [OpenAiWhisperRequest.ts](file://src/backend/objs/OpenAiWhisperRequest.ts#L35-L93)
+- [LocalWhisperRequest.ts](file://src/backend/objs/LocalWhisperRequest.ts#L21-L147)
 
 **Section sources**  
-- [OpenAiWhisperRequest.ts](file://src/backend/objs/OpenAiWhisperRequest.ts#L35-L93)
+- [LocalWhisperRequest.ts](file://src/backend/objs/LocalWhisperRequest.ts#L21-L147)
 
 ## 双语字幕与时间戳调整
 系统支持双语字幕显示，原始英文文本、微软翻译结果和中文翻译均可同时呈现。`SentenceStruct` 接口定义了句子结构，包含原始文本和按空格划分的块信息，便于后续处理和高亮显示。
@@ -231,19 +249,31 @@ I --> J
 3. 获取 App Key 和 Secret Key
 4. 在 DashPlayer 设置中完成配置
 
+### 本地Whisper配置
+1. 安装 Python 3.8+ 环境
+2. 运行 `pip install openai-whisper torch torchaudio`
+3. 在 DashPlayer 设置中进入“语音识别”页面
+4. 选择“本地 Whisper 模型”作为提供商
+5. 配置 Python 路径（可选，默认为 python3）
+6. 选择合适的模型（推荐 medium.en）
+7. 点击“测试环境”验证配置
+
 **Section sources**  
 - [Writerside/topics/Config-OpenAI-API.md](file://Writerside/topics/Config-OpenAI-API.md)
 - [Writerside/topics/Config-Tencent-API.md](file://Writerside/topics/Config-Tencent-API.md)
 - [Writerside/topics/Config-YouDao-API.md](file://Writerside/topics/Config-YouDao-API.md)
+- [LOCAL_WHISPER_README.md](file://LOCAL_WHISPER_README.md)
+- [WHISPER_IMPLEMENTATION_SUMMARY.md](file://WHISPER_IMPLEMENTATION_SUMMARY.md)
 
 ## 服务性能对比
-| 服务提供商 | 准确率 | 延迟 | 成本 | 支持语言 |
-|----------|-------|------|------|---------|
-| OpenAI Whisper | 高 | 中等 | 按使用量计费 | 多语言支持 |
-| 腾讯云 | 中等 | 低 | 按调用次数计费 | 中文优化 |
-| 有道智云 | 中等 | 低 | 免费额度+按量计费 | 中英双语 |
+| 服务提供商 | 准确率 | 延迟 | 成本 | 支持语言 | 隐私性 |
+|----------|-------|------|------|---------|--------|
+| OpenAI Whisper | 高 | 中等 | 按使用量计费 | 多语言支持 | 需上传数据 |
+| 腾讯云 | 中等 | 低 | 按调用次数计费 | 中文优化 | 需上传数据 |
+| 有道智云 | 中等 | 低 | 免费额度+按量计费 | 中英双语 | 需上传数据 |
+| 本地Whisper | 高 | 本地处理 | 免费（一次性硬件成本） | 多语言支持 | 完全本地 |
 
-OpenAI Whisper 在多语言识别和准确性方面表现最佳，适合高质量字幕生成；腾讯云和有道在中文语音识别上具有本地化优势，响应速度快，适合实时场景。
+OpenAI Whisper 在多语言识别和准确性方面表现最佳，适合高质量字幕生成；腾讯云和有道在中文语音识别上具有本地化优势，响应速度快，适合实时场景；本地Whisper提供完全离线的解决方案，保护数据隐私，长期使用成本更低。
 
 ## 结论
-DashPlayer 的 AI 字幕生成功能通过模块化设计实现了对多种语音识别服务的支持，具备高可靠性、灵活性和可扩展性。系统通过音频分片、重试机制和速率控制保障了转录成功率，同时提供完善的前端交互体验，支持双语显示和时间轴校正。未来可进一步优化缓存策略、增加更多语音识别接口，并支持自定义模型训练，提升个性化服务能力。
+DashPlayer 的 AI 字幕生成功能通过模块化设计实现了对多种语音识别服务的支持，具备高可靠性、灵活性和可扩展性。系统通过音频分片、重试机制和速率控制保障了转录成功率，同时提供完善的前端交互体验，支持双语显示和时间轴校正。新增的本地Whisper支持使得用户可以在完全离线的环境下进行高质量的语音转录，通过3小时自动清理的缓存策略和视频元数据比对防重复处理机制，进一步优化了系统性能和用户体验。未来可进一步优化缓存策略、增加更多语音识别接口，并支持自定义模型训练，提升个性化服务能力。
