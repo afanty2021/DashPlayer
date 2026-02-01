@@ -2,25 +2,23 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import UndoRedo from '@/common/utils/UndoRedo';
 import { engEqual, p } from '@/common/utils/Util';
-import usePlayerController from '@/fronted/hooks/usePlayerController';
+import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
 import CustomMessage from '@/common/types/msg/interfaces/CustomMessage';
 import HumanTopicMessage from '@/common/types/msg/HumanTopicMessage';
-import AiWelcomeMessage from '@/common/types/msg/AiWelcomeMessage';
 import HumanNormalMessage from '@/common/types/msg/HumanNormalMessage';
 import useFile from '@/fronted/hooks/useFile';
-import AiCtxMenuExplainSelectWithContextMessage from '@/common/types/msg/AiCtxMenuExplainSelectWithContextMessage';
 import { getTtsUrl, playAudioUrl } from '@/common/utils/AudioPlayer';
-import AiCtxMenuPolishMessage from '@/common/types/msg/AiCtxMenuPolishMessage';
-import AiCtxMenuExplainSelectMessage from '@/common/types/msg/AiCtxMenuExplainSelectMessage';
 import UrlUtil from '@/common/utils/UrlUtil';
-import { getDpTaskResult, registerDpTask } from '@/fronted/hooks/useDpTaskCenter';
-import { AiAnalyseNewWordsRes } from '@/common/types/aiRes/AiAnalyseNewWordsRes';
-import { AiAnalyseNewPhrasesRes } from '@/common/types/aiRes/AiAnalyseNewPhrasesRes';
-import AiNormalMessage from '@/common/types/msg/AiNormalMessage';
 import StrUtil from '@/common/utils/str-util';
+import { getRendererLogger } from '@/fronted/log/simple-logger';
 import { TypeGuards } from '@/backend/utils/TypeGuards';
+import { backendClient } from '@/fronted/application/bootstrap/backendClient';
+import AiStreamingMessage from '@/common/types/msg/AiStreamingMessage';
+import { ChatBackgroundContext, ChatStreamEvent, ChatWelcomeParams } from '@/common/types/chat';
+import { AnalysisStreamEvent, DeepPartial } from '@/common/types/analysis';
+import { AiUnifiedAnalysisRes } from '@/common/types/aiRes/AiUnifiedAnalysisRes';
 
-const api = window.electron;
+const api = backendClient;
 
 export type Topic = {
     content: string | {
@@ -36,13 +34,6 @@ export type Topic = {
 
 } | 'offscreen';
 
-export type Tasks = {
-    vocabularyTask: number | null;
-    phraseTask: number | null;
-    grammarTask: number | null;
-    sentenceTask: number[];
-}
-
 const undoRedo = new UndoRedo<ChatPanelState>();
 export type ChatPanelState = {
     internal: {
@@ -52,7 +43,12 @@ export type ChatPanelState = {
         }
         chatTaskQueue: CustomMessage<any>[];
     }
-    tasks: Tasks;
+    chatSessionId: string;
+    streamingMessageId: string | null;
+    analysis: Partial<AiUnifiedAnalysisRes> | null;
+    analysisMessageId: string | null;
+    analysisStatus: 'idle' | 'streaming' | 'done' | 'error';
+    analysisError: string | null;
     topic: Topic
     messages: CustomMessage<any>[];
     streamingMessage: CustomMessage<any> | null;
@@ -63,14 +59,15 @@ export type ChatPanelState = {
 };
 
 export type ChatPanelActions = {
-    addChatTask: (task: CustomMessage<any>) => void;
     backward: () => void;
     forward: () => void;
     createFromSelect: (text?: string) => void;
     createFromCurrent: () => void;
     clear: () => void;
-    setTask: (tasks: Tasks) => void;
     sent: (msg: string) => void;
+    receiveChatStream: (event: ChatStreamEvent) => void;
+    receiveAnalysisStream: (event: AnalysisStreamEvent) => void;
+    startAnalysis: () => Promise<void>;
     updateInternalContext: (value: string) => void;
     ctxMenuOpened: () => void;
     ctxMenuExplain: () => void;
@@ -79,8 +76,15 @@ export type ChatPanelActions = {
     ctxMenuQuote: () => void;
     ctxMenuCopy: () => void;
     deleteMessage: (msg: CustomMessage<any>) => void;
-    retry: (type: 'vocabulary' | 'phrase' | 'grammar' | 'sentence' | 'topic' | 'welcome') => void;
+    retry: (type: 'analysis' | 'topic') => void;
     setInput: (input: string) => void;
+};
+
+const createChatSessionId = (): string => {
+    if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+        return crypto.randomUUID();
+    }
+    return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
 const copy = (state: ChatPanelState): ChatPanelState => {
@@ -91,12 +95,12 @@ const copy = (state: ChatPanelState): ChatPanelState => {
             },
             chatTaskQueue: state.internal.chatTaskQueue.map(e => e.copy())
         },
-        tasks: {
-            vocabularyTask: state.tasks.vocabularyTask,
-            phraseTask: state.tasks.phraseTask,
-            grammarTask: state.tasks.grammarTask,
-            sentenceTask: state.tasks.sentenceTask
-        },
+        chatSessionId: state.chatSessionId,
+        streamingMessageId: state.streamingMessageId,
+        analysis: state.analysis,
+        analysisMessageId: state.analysisMessageId,
+        analysisStatus: state.analysisStatus,
+        analysisError: state.analysisError,
         topic: state.topic,
         messages: state.messages,
         streamingMessage: state.streamingMessage,
@@ -116,12 +120,12 @@ const empty = (): ChatPanelState => {
             },
             chatTaskQueue: []
         },
-        tasks: {
-            vocabularyTask: null,
-            phraseTask: null,
-            grammarTask: null,
-            sentenceTask: []
-        },
+        chatSessionId: createChatSessionId(),
+        streamingMessageId: null,
+        analysis: null,
+        analysisMessageId: null,
+        analysisStatus: 'idle',
+        analysisError: null,
         topic: 'offscreen',
         messages: [],
         streamingMessage: null,
@@ -135,14 +139,6 @@ const empty = (): ChatPanelState => {
 const useChatPanel = create(
     subscribeWithSelector<ChatPanelState & ChatPanelActions>((set, get) => ({
         ...empty(),
-        addChatTask: (msg) => {
-            set({
-                messages: [
-                    ...get().messages,
-                    msg
-                ]
-            });
-        },
         backward: () => {
             undoRedo.update(copy(get()));
             if (!undoRedo.canUndo()) return;
@@ -177,57 +173,45 @@ const useChatPanel = create(
             }
             undoRedo.update(copy(get()));
             undoRedo.add(empty());
-            const synTask = await registerDpTask(() => api.call('ai-func/polish', text));
-            const phraseGroupTask = await registerDpTask(() => api.call('ai-func/phrase-group', text));
-            const tt = new HumanTopicMessage(get().topic, text, phraseGroupTask);
+            const tt = new HumanTopicMessage(get().topic, text);
             const topic = { content: text };
-            const currentSentence = usePlayerController.getState().currentSentence;
-            const subtitles = usePlayerController.getState().getSubtitleAround(currentSentence?.index ?? 0, 5);
+            const currentSentence = usePlayerV2.getState().currentSentence;
+            const sentences = usePlayerV2.getState().sentences;
+            const subtitles = (() => {
+                if (!currentSentence) return [] as typeof sentences;
+                const idx = sentences.findIndex(s => s.index === currentSentence.index && s.fileHash === currentSentence.fileHash);
+                const left = Math.max(0, idx - 5);
+                const right = Math.min(sentences.length - 1, idx + 5);
+                return sentences.slice(left, right + 1);
+            })();
             const context: string[] = subtitles
                 .filter(TypeGuards.isNotNull)
                 .map(e => e.text ?? '');
-            const transTask = await registerDpTask(() => api.call('ai-func/translate-with-context', {
-                sentence: text??'',
-                context: context
-            }));
-            const mt = new AiWelcomeMessage({
-                originalTopic: text,
-                synonymousSentenceTask: synTask,
-                punctuationTask: null,
-                topic: topic,
-                translateTask: transTask
-            });
             set({
                 ...empty(),
                 topic: topic,
                 messages: [
-                    tt,
-                    mt
+                    tt
                 ],
-                tasks: {
-                    ...empty().tasks
-                    // chatTask: mt
-                },
                 canRedo: undoRedo.canRedo(),
                 canUndo: undoRedo.canUndo()
             });
+            scheduleWelcomeMessage({
+                sessionId: get().chatSessionId,
+                originalTopic: text,
+                fullText: context.join(' '),
+            }, topic);
         },
         createFromCurrent: async () => {
             undoRedo.add(copy(get()));
-            const ct = usePlayerController.getState().currentSentence;
+            const ct = usePlayerV2.getState().currentSentence;
             if (!ct) return;
-            const synTask = await registerDpTask(() => api.call('ai-func/polish', ct.text ?? ''));
-            const phraseGroupTask = await api.call('ai-func/phrase-group', ct.text ?? '');
-            const tt = new HumanTopicMessage(get().topic, ct.text ?? '', phraseGroupTask);
+            const tt = new HumanTopicMessage(get().topic, ct.text ?? '');
             // const subtitleAround = usePlayerController.getState().getSubtitleAround(5).map(e => e.text);
             const url = useFile.getState().subtitlePath ?? '';
-            console.log(url);
-            const text = await fetch(UrlUtil.dp(url)).then((res) => res.text());
-            console.log('text', text);
-            const punctuationTask = await registerDpTask(() => api.call('ai-func/punctuation', {
-                no: ct.index,
-                srt: text
-            }));
+            getRendererLogger('useChatPanel').debug('subtitle file url', { url });
+            const text = await fetch(UrlUtil.toUrl(url)).then((res) => res.text());
+            getRendererLogger('useChatPanel').debug('subtitle file content', { length: text.length });
             const topic = {
                 content: {
                     start: {
@@ -240,58 +224,161 @@ const useChatPanel = create(
                     }
                 }
             };
-            const currentSentence = usePlayerController.getState().currentSentence;
+            const currentSentence = usePlayerV2.getState().currentSentence;
             if (!currentSentence) return;
-            const subtitles = usePlayerController.getState().getSubtitleAround(currentSentence.index, 5);
-            const transTask = await registerDpTask(() => api.call('ai-func/translate-with-context', {
-                sentence: currentSentence.text,
-                context: subtitles.map(e => e.text)
-            }));
-            const mt = new AiWelcomeMessage({
-                originalTopic: ct.text,
-                synonymousSentenceTask: synTask,
-                punctuationTask: punctuationTask,
-                topic: topic,
-                translateTask: transTask
-            });
+            const sentences = usePlayerV2.getState().sentences;
+            const subtitles = (() => {
+                const idx = sentences.findIndex(s => s.index === currentSentence.index && s.fileHash === currentSentence.fileHash);
+                const left = Math.max(0, idx - 5);
+                const right = Math.min(sentences.length - 1, idx + 5);
+                return sentences.slice(left, right + 1);
+            })();
             set({
                 ...empty(),
                 topic,
                 messages: [
-                    tt,
-                    mt
-                ],
-                tasks: {
-                    ...empty().tasks
-                    // chatTask: mt
-                }
+                    tt
+                ]
             });
+            scheduleWelcomeMessage({
+                sessionId: get().chatSessionId,
+                originalTopic: ct.text,
+                fullText: subtitles.map(e => e.text).join(' '),
+            }, topic);
         },
         clear: () => {
             undoRedo.clear();
             set(empty());
         },
-        setTask: (tasks: Tasks) => {
-            set({
-                tasks: {
-                    ...tasks
-                }
-            });
-        },
         sent: async (msg: string) => {
             if (StrUtil.isBlank(msg)) return;
             const requestMsg = new HumanNormalMessage(get().topic, msg);
-            const history = await Promise.all(
-                get().messages.concat(requestMsg).map(e => e.toMsg())
+            const baseMessages = await Promise.all(
+                get().messages.map(e => e.toMsg())
             ).then(results => results.flat());
-            console.log('history', history);
-            const taskID = await registerDpTask(() => api.call('ai-func/chat', { msgs: history }));
+            const requestMessages = await requestMsg.toMsg();
+            const background = buildChatBackgroundContext(get().analysis ?? null);
+            const history = [...baseMessages, ...requestMessages];
+            getRendererLogger('useChatPanel').debug('chat history', { messageCount: history.length });
+            const { messageId } = await api.call('chat/start', {
+                sessionId: get().chatSessionId,
+                messages: history,
+                background: background ?? undefined,
+            });
             set({
                 messages: [
                     ...get().messages,
-                    requestMsg,
-                    new AiNormalMessage(get().topic, taskID)
-                ]
+                    requestMsg
+                ],
+                streamingMessage: new AiStreamingMessage(get().topic, messageId, '', true),
+                streamingMessageId: messageId
+            });
+        },
+        receiveChatStream: (event: ChatStreamEvent) => {
+            if (event.sessionId !== get().chatSessionId) {
+                return;
+            }
+            const currentStreaming = get().streamingMessage;
+            if (event.event === 'start') {
+                if (!currentStreaming || (currentStreaming as AiStreamingMessage).messageId !== event.messageId) {
+                    set({
+                        streamingMessage: new AiStreamingMessage(get().topic, event.messageId, '', true),
+                        streamingMessageId: event.messageId
+                    });
+                }
+                return;
+            }
+
+            if (!currentStreaming || (currentStreaming as AiStreamingMessage).messageId !== event.messageId) {
+                return;
+            }
+
+            const streaming = currentStreaming as AiStreamingMessage;
+            if (event.event === 'chunk') {
+                set({
+                    streamingMessage: streaming.withUpdate(`${streaming.content}${event.chunk ?? ''}`, true)
+                });
+                return;
+            }
+            if (event.event === 'done') {
+                const finished = streaming.withUpdate(streaming.content, false);
+                set({
+                    messages: [...get().messages, finished],
+                    streamingMessage: null,
+                    streamingMessageId: null
+                });
+                return;
+            }
+            if (event.event === 'error') {
+                const errorMsg = event.error ? `\n\n[Error] ${event.error}` : '\n\n[Error]';
+                const failed = streaming.withUpdate(`${streaming.content}${errorMsg}`, false);
+                set({
+                    messages: [...get().messages, failed],
+                    streamingMessage: null,
+                    streamingMessageId: null
+                });
+            }
+        },
+        receiveAnalysisStream: (event: AnalysisStreamEvent) => {
+            if (event.sessionId !== get().chatSessionId) {
+                return;
+            }
+            if (event.event === 'start') {
+                set({
+                    analysis: {},
+                    analysisMessageId: event.messageId,
+                    analysisStatus: 'streaming',
+                    analysisError: null,
+                });
+                return;
+            }
+
+            if (event.messageId !== get().analysisMessageId) {
+                return;
+            }
+
+            if (event.event === 'chunk' && event.partial) {
+                const logger = getRendererLogger('useChatPanel');
+                const partialExamples = event.partial.examples;
+                if (partialExamples) {
+                    logger.debug('analysis examples chunk', {
+                        sentencesCount: partialExamples.sentences?.length ?? 0,
+                        sampleSentence: partialExamples.sentences?.[0],
+                    });
+                }
+                set({
+                    analysis: mergeAnalysisPartial(get().analysis ?? {}, event.partial),
+                    analysisStatus: 'streaming',
+                });
+                return;
+            }
+            if (event.event === 'done') {
+                set({
+                    analysisStatus: 'done',
+                });
+                return;
+            }
+            if (event.event === 'error') {
+                set({
+                    analysisStatus: 'error',
+                    analysisError: event.error ?? 'analysis error',
+                });
+            }
+        },
+        startAnalysis: async () => {
+            const text = extractTopic(get().topic);
+            if (StrUtil.isBlank(text) || text === 'offscreen') {
+                return;
+            }
+            const { messageId } = await api.call('chat/analysis/start', {
+                sessionId: get().chatSessionId,
+                text,
+            });
+            set({
+                analysis: {},
+                analysisMessageId: messageId,
+                analysisStatus: 'streaming',
+                analysisError: null,
             });
         },
         updateInternalContext: (value: string) => {
@@ -300,7 +387,7 @@ const useChatPanel = create(
         },
         ctxMenuOpened: () => {
             const internalContext = getInternalContext();
-            console.log('ctxMenuOpened', internalContext);
+            getRendererLogger('useChatPanel').debug('context menu opened', { context: internalContext });
             set({
                 context: internalContext
             });
@@ -310,16 +397,14 @@ const useChatPanel = create(
             if (StrUtil.isBlank(userSelect)) return;
             const context = get().context;
             if (StrUtil.isBlank(context) || engEqual(context, userSelect)) {
-                const taskId = await registerDpTask(() => api.call('ai-func/explain-select', {
-                    word: userSelect
-                }));
-                get().addChatTask(new AiCtxMenuExplainSelectMessage(taskId, get().topic, context ?? ''));
+                await get().sent(`这个词/短语 "${userSelect}" 是什么意思？`);
             } else {
-                const taskId = await registerDpTask(() => api.call('ai-func/explain-select-with-context', {
-                    sentence: context,
-                    selectedWord: userSelect
-                }));
-                get().addChatTask(new AiCtxMenuExplainSelectWithContextMessage(taskId, get().topic, context, userSelect));
+                await get().sent([
+                    `这句话里的 "${userSelect}" 是什么意思？`,
+                    '"""',
+                    context,
+                    '"""'
+                ].join('\n'));
             }
         },
         ctxMenuPlayAudio: async () => {
@@ -337,49 +422,16 @@ const useChatPanel = create(
                 text = get().context ?? '';
             }
             if (StrUtil.isBlank(text)) return;
-            const taskId = await registerDpTask(() => api.call('ai-func/polish', text));
-            get().addChatTask(new AiCtxMenuPolishMessage(taskId, get().topic, text));
+            await get().sent(`帮我把这句话改写得更地道一些：\n"""\n${text}\n"""`);
         },
         deleteMessage: (msg: CustomMessage<any>) => {
             set({
                 messages: get().messages.filter(e => e !== msg)
             });
         },
-        retry: async (type: 'vocabulary' | 'phrase' | 'grammar' | 'sentence' | 'topic' | 'welcome') => {
-            if (type === 'vocabulary') {
-                runVocabulary().then();
-            }
-            if (type === 'phrase') {
-                runPhrase().then();
-            }
-            if (type === 'grammar') {
-                runGrammar().then();
-            }
-            if (type === 'topic') {
-                const msg = get().messages[0].copy() as HumanTopicMessage;
-                msg.phraseGroupTask = await registerDpTask(() => api.call('ai-func/phrase-group', msg.content));
-                // set 0
-                const newMessages = [...get().messages];
-                newMessages[0] = msg;
-                set({
-                    messages: newMessages
-                });
-            }
-            if (type === 'welcome') {
-                const msg = get().messages[1].copy() as AiWelcomeMessage;
-                const ct = usePlayerController.getState().currentSentence;
-                if (!ct) return;
-                const polishTask = await registerDpTask(() => api.call('ai-func/polish', msg.originalTopic));
-                const punctuationTask = await registerDpTask(() => api.call('ai-func/punctuation', {
-                    no: ct.index,
-                    srt: msg.originalTopic
-                }));
-                msg.polishTask = polishTask;
-                msg.punctuationTask = punctuationTask;
-                // todo
-            }
-            if (type === 'sentence') {
-                runSentence(true).then();
+        retry: async (type: 'analysis' | 'topic') => {
+            if (type === 'analysis' || type === 'topic') {
+                get().startAnalysis();
             }
         },
         ctxMenuQuote: () => {
@@ -423,13 +475,76 @@ export function getInternalContext(): string | null {
     return context.value;
 }
 
+const mergeAnalysisPartial = (
+    current: Partial<AiUnifiedAnalysisRes>,
+    partial: DeepPartial<AiUnifiedAnalysisRes>
+): Partial<AiUnifiedAnalysisRes> => {
+    const mergeValue = (base: unknown, update: unknown): unknown => {
+        if (Array.isArray(base) || Array.isArray(update)) {
+            const baseArr = Array.isArray(base) ? base : [];
+            const updateArr = Array.isArray(update) ? update : [];
+            const length = Math.max(baseArr.length, updateArr.length);
+            return Array.from({ length }).map((_, index) => {
+                if (index in updateArr) {
+                    return mergeValue(baseArr[index], updateArr[index]);
+                }
+                return baseArr[index];
+            });
+        }
+        if (base && typeof base === 'object' && update && typeof update === 'object') {
+            const result: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+            Object.entries(update as Record<string, unknown>).forEach(([key, value]) => {
+                result[key] = mergeValue(result[key], value);
+            });
+            return result;
+        }
+        if (update !== undefined) {
+            return update;
+        }
+        return base;
+    };
+
+    return mergeValue(current, partial) as Partial<AiUnifiedAnalysisRes>;
+};
+
+const getCurrentParagraphLines = (): string[] => {
+    const currentSentence = usePlayerV2.getState().currentSentence;
+    const sentences = usePlayerV2.getState().sentences;
+    const subtitles = (() => {
+        if (!currentSentence) return [] as typeof sentences;
+        const idx = sentences.findIndex(s => s.index === currentSentence.index && s.fileHash === currentSentence.fileHash);
+        if (idx < 0) return [];
+        const left = Math.max(0, idx - 5);
+        const right = Math.min(sentences.length - 1, idx + 5);
+        return sentences.slice(left, right + 1);
+    })();
+
+    return subtitles
+        .filter(TypeGuards.isNotNull)
+        .map(s => s.text ?? '')
+        .filter(text => text.trim().length > 0);
+};
+
+const buildChatBackgroundContext = (
+    analysis: Partial<AiUnifiedAnalysisRes> | null
+): ChatBackgroundContext | null => {
+    const paragraphLines = getCurrentParagraphLines();
+    if (paragraphLines.length === 0 && !analysis) {
+        return null;
+    }
+    return {
+        paragraphLines,
+        analysis: analysis ?? undefined,
+    };
+};
+
 
 const extractTopic = (t: Topic): string => {
-    console.log('extractTopic', t);
+    getRendererLogger('useChatPanel').debug('extract topic', { topic: t });
     if (t === 'offscreen') return 'offscreen';
     if (typeof t.content === 'string') return t.content;
     const content = t.content;
-    const subtitle = usePlayerController.getState().subtitle;
+    const subtitle = usePlayerV2.getState().sentences;
     const length = subtitle?.length ?? 0;
     if (length === 0 || content.start.sIndex > length || content.end.sIndex > length) {
         return 'extractTopic failed';
@@ -452,69 +567,25 @@ const extractTopic = (t: Topic): string => {
     return `${st} ${et}`;
 };
 
-
-const runVocabulary = async () => {
-    const tId = await registerDpTask(() => api.call('ai-func/analyze-new-words', extractTopic(useChatPanel.getState().topic)), {
-        onFinish: (res) => {
-            runSentence().then();
-        }
-    });
-    useChatPanel.getState().setTask({
-        ...useChatPanel.getState().tasks,
-        vocabularyTask: tId
-    });
-};
-
-const runPhrase = async () => {
-    const tId = await registerDpTask(() => api.call('ai-func/analyze-new-phrases', extractTopic(useChatPanel.getState().topic)), {
-        onFinish: (res) => {
-            runSentence().then();
-        }
-    });
-    useChatPanel.getState().setTask({
-        ...useChatPanel.getState().tasks,
-        phraseTask: tId
-    });
-
-};
-
-const runGrammar = async () => {
-    const tId = await registerDpTask(() => api.call('ai-func/analyze-grammars', extractTopic(useChatPanel.getState().topic)));
-    useChatPanel.getState().setTask({
-        ...useChatPanel.getState().tasks,
-        grammarTask: tId
-    });
-
-};
-
-let runSentenceLock = 0;
-
-const runSentence = async (force = false) => {
-    const state = useChatPanel.getState();
-    const wtId = state.tasks.vocabularyTask;
-    const ptId = state.tasks.phraseTask;
-    const wr = await getDpTaskResult<AiAnalyseNewWordsRes>(typeof wtId === 'number' ? wtId : null);
-    const pr = await getDpTaskResult<AiAnalyseNewPhrasesRes>(typeof ptId === 'number' ? ptId : null);
-    console.log('runSentence', wr, pr);
-    if (!wr || !pr) return;
-    const points = [
-        ...(wr?.words ?? []).map(w => w.word),
-        ...(pr?.phrases ?? []).map(p => p.phrase)
-    ];
-    console.log('points', points);
-    const newLock = (typeof wtId === 'number' ? wtId : 0) + (typeof ptId === 'number' ? ptId : 0);
-    if (runSentenceLock !== newLock || force) {
-        runSentenceLock = newLock;
-        const tId = await registerDpTask(() => api.call('ai-func/make-example-sentences', {
-            sentence: extractTopic(useChatPanel.getState().topic),
-            point: points
-        }));
-        useChatPanel.getState().setTask({
-            ...useChatPanel.getState().tasks,
-            sentenceTask: [...useChatPanel.getState().tasks.sentenceTask, tId]
+const scheduleWelcomeMessage = (params: ChatWelcomeParams, topic: Topic) => {
+    api.call('chat/welcome', params)
+        .then(({ messageId }) => {
+            if (useChatPanel.getState().chatSessionId !== params.sessionId) {
+                return;
+            }
+            const nextMessages = useChatPanel.getState().messages
+                .filter(msg => msg.msgType !== 'ai-streaming');
+            useChatPanel.setState({
+                messages: nextMessages,
+                streamingMessage: new AiStreamingMessage(topic, messageId, '', true),
+                streamingMessageId: messageId,
+            });
+        })
+        .catch((error) => {
+            getRendererLogger('useChatPanel').error('failed to stream welcome message', { error });
         });
-    }
 };
+
 
 let running = false;
 useChatPanel.subscribe(
@@ -525,16 +596,7 @@ useChatPanel.subscribe(
         }
         if (running) return;
         running = true;
-        const tasks = useChatPanel.getState().tasks;
-        if (!tasks.vocabularyTask) {
-            await runVocabulary();
-        }
-        if (!tasks.phraseTask) {
-            await runPhrase();
-        }
-        if (!tasks.grammarTask) {
-            await runGrammar();
-        }
+        await useChatPanel.getState().startAnalysis();
         running = false;
     }
 );

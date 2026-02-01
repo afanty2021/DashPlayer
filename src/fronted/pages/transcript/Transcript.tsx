@@ -1,6 +1,6 @@
 import React from 'react';
 import {cn} from "@/fronted/lib/utils";
-import Separator from '@/fronted/components/Separtor';
+import Separator from '@/fronted/components/shared/common/Separator';
 import TranscriptFile from './TranscriptFile';
 import TranscriptTable from '@/fronted/pages/transcript/TranscriptTable';
 
@@ -16,7 +16,7 @@ const Transcript = () => {
                     Transcript
                 </h1>
                 <h2 className={cn('text-xl text-secondary-foreground mt-2 mb-4')}>
-                    Add subtitles to your videos using OpenAI's Whisper Large model
+                    Add subtitles to your videos using AI-powered speech recognition
                 </h2>
                 <Separator orientation="horizontal" className="px-0"/>
             </div>

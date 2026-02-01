@@ -28,18 +28,17 @@ export interface Sentence {
      */
     textZH: string;
 
-
-    /**
-     * 字幕机器翻译
-     */
-    msTranslate: string | null;
-
     key: string;
 
     /**
      * 批量翻译的分组, 从1开始
      */
     transGroup: number;
+
+    /**
+     * 翻译key - hash(附近三行文本)
+     */
+    translationKey: string;
 
     struct: SentenceStruct;
 }

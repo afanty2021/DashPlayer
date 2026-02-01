@@ -8,3 +8,9 @@ export type ClipQuery = {
     date: DateRange;
     includeNoTag: boolean;
 }
+
+export type SimpleClipQuery = {
+    word: string;
+    page?: number;
+    pageSize?: number;
+}

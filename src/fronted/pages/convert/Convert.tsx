@@ -1,5 +1,5 @@
 import { cn } from '@/fronted/lib/utils';
-import Separator from '@/fronted/components/Separtor';
+import Separator from '@/fronted/components/shared/common/Separator';
 import React from 'react';
 import ConvertFileSelector from '@/fronted/pages/convert/ConvertFileSelector';
 import ConvertFolderSelector from '@/fronted/pages/convert/FolderSelector';
@@ -7,11 +7,15 @@ import ConvertItem from '@/fronted/pages/convert/convert-item';
 import useConvert from '@/fronted/hooks/useConvert';
 import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/fronted/components/ui/button';
-import { DpTaskState } from '@/backend/db/tables/dpTask';
-import Eb from '@/fronted/components/Eb';
+import { DpTaskState } from '@/backend/infrastructure/db/tables/dpTask';
+import Eb from '@/fronted/components/shared/common/Eb';
+import { getRendererLogger } from '@/fronted/log/simple-logger';
+import { backendClient } from '@/fronted/application/bootstrap/backendClient';
+
+const logger = getRendererLogger('Convert');
 
 
-const api = window.electron;
+const api = backendClient;
 const Convert = () => {
     const {
         files,
@@ -41,10 +45,10 @@ const Convert = () => {
         >
             <div className={cn('p-4')}>
                 <h1 className={cn('text-4xl font-bold font-serif')}>
-                    Convert mkv to mp4
+                    生成兼容播放版本
                 </h1>
                 <h2 className={cn('text-xl text-secondary-foreground mt-2 mb-4')}>
-                    Convert mkv to mp4 with subtitles
+                    解决无声/无法播放等问题（必要时仅转音频，并尝试提取字幕）
                 </h2>
                 <Separator orientation="horizontal" className="px-0" />
             </div>
@@ -87,7 +91,7 @@ const Convert = () => {
                                             size={'sm'} className={cn('')} onClick={() => {
                                             convertFolder(folder.folder);
                                         }}>
-                                            Convert
+                                            生成
                                         </Button>
                                     </div>
 
@@ -99,7 +103,7 @@ const Convert = () => {
                                                 buttonVariant={'small'}
                                                 className={'bg-background drop-shadow'} file={file}
                                                 onSelected={() => {
-                                                    console.log('selected', file);
+                                                    logger.debug('File selected in convert folder', { file });
                                                 }}
                                                 onDeleted={() => {
                                                     deleteFolder(folder.folder, file);
@@ -117,7 +121,7 @@ const Convert = () => {
                             <ConvertItem
                                 className={'border'} file={file}
                                 onSelected={() => {
-                                    console.log('selected', file);
+                                    logger.debug('File selected in convert files', { file });
                                 }}
                                 onDeleted={() => {
                                     deleteFile(file);

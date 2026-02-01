@@ -130,20 +130,20 @@ const HomePage = () => {
                 >
                     <h1 className="text-3xl font-semibold -translate-x-1">DashPlayer</h1>
                     <Link
-                        onClick={() => api.call('system/window-size/change', 'player')}
+                        onClick={() => backendClient.call('system/window-size/change', 'player')}
                         to="/home" className="font-semibold text-primary mt-28 text-base ">
                         Home Page
                     </Link>
-                    <Link onClick={() => api.call('system/window-size/change', 'player')} to={'/favorite'}
+                    <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/favorite'}
                           className="font-semibold ">Favorite Clips</Link>
-                    <Link onClick={() => api.call('system/window-size/change', 'player')} to={'/transcript'}
+                    <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/transcript'}
                           className="font-semibold ">Transcript</Link>
-                    <Link onClick={() => api.call('system/window-size/change', 'player')} to="/split"
+                    <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to="/split"
                           className="font-semibold ">Split Video</Link>
-                    <Link onClick={() => api.call('system/window-size/change', 'player')} to={'/download'}
-                          className="font-semibold ">Download</Link>
-                    <Link onClick={() => api.call('system/window-size/change', 'player')} to={'/convert'}
+                    <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/convert'}
                           className="font-semibold ">Convert</Link>
+                    <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/vocabulary'}
+                          className="font-semibold ">Vocabulary</Link>
                 </nav>
                 <div className="flex flex-col overflow-y-auto scrollbar-none md:p-10 md:pl-0 w-0 flex-1">
                     <div
@@ -155,26 +155,9 @@ const HomePage = () => {
                         />
                         <FolderSelector
                             onSelected={FolderSelectAction.defaultAction2(async (vid, fp) => {
-                                await api.call('system/window-size/change', 'player');
+                                await backendClient.call('system/window-size/change', 'player');
                                 changeSideBar(false);
                                 navigate(`/player/${vid}`);
-                                const analyse = await api.call('watch-history/analyse-folder', fp);
-                                if (analyse?.unsupported > 0) {
-                                    const folderList = await api.call('convert/from-folder', [fp]);
-                                    setTimeout(() => {
-                                        toast('MKV 格式的的视频可能会遇到问题', {
-                                            description: '如果您遇到问题，请尝试转换视频格式',
-                                            position: 'top-right',
-                                            action: {
-                                                label: 'Convert',
-                                                onClick: () => {
-                                                    useConvert.getState().addFolders(folderList);
-                                                    navigate(`/convert`);
-                                                }
-                                            }
-                                        });
-                                    }, 500);
-                                }
                             })}
                         />
                     </div>

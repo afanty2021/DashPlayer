@@ -16,7 +16,7 @@
 import Controller from '@/backend/interfaces/controller';
 import container from '@/backend/ioc/inversify.config';
 import TYPES from '@/backend/ioc/types';
-import SystemService from '@/backend/services/SystemService';
+import MainWindowRegistry from '@/backend/infrastructure/system/MainWindowRegistry';
 import { BrowserWindow } from 'electron';
 
 /**

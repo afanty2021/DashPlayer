@@ -27,6 +27,8 @@
  */
 
 import './index.css';
-// Add this to the end of the existing file
+// 初始化前端（renderer apis、settings sync等）
+import './fronted/init-controllers';
+
+// React App
 import './app';
-console.log('👋 This message is being logged by "renderer.ts", included via Vite');

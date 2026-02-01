@@ -1,21 +1,26 @@
-import { DpTask } from '@/backend/db/tables/dpTask';
-import { YdRes } from '@/common/types/YdRes';
-import { ChapterParseResult } from '@/common/types/chapter-result';
-import { SrtSentence } from '@/common/types/SentenceC';
-import { WindowState } from '@/common/types/Types';
+import {DpTask} from '@/backend/infrastructure/db/tables/dpTask';
+import {YdRes, OpenAIDictionaryResult} from '@/common/types/YdRes';
+import {ChapterParseResult} from '@/common/types/chapter-result';
+import {SrtSentence} from '@/common/types/SentenceC';
+import {WindowState} from '@/common/types/Types';
 import {
     InsertSubtitleTimestampAdjustment
-} from '@/backend/db/tables/subtitleTimestampAdjustment';
-import { SettingKey } from '@/common/types/store_schema';
-import Release from '@/common/types/release';
-import { FolderVideos } from '@/common/types/tonvert-type';
+} from '@/backend/infrastructure/db/tables/subtitleTimestampAdjustment';
+import {SettingKey} from '@/common/types/store_schema';
+import { UpdateCheckResult } from '@/common/types/update-check';
+import {FolderVideos} from '@/common/types/tonvert-type';
 
-import { Tag } from '@/backend/db/tables/tag';
-import { ClipQuery } from '@/common/api/dto';
-import { ClipMeta, OssBaseMeta } from '@/common/types/clipMeta';
+import {Tag} from '@/backend/infrastructure/db/tables/tag';
+import {ClipQuery, SimpleClipQuery} from '@/common/api/dto';
+import {ClipMeta, OssBaseMeta} from '@/common/types/clipMeta';
 import WatchHistoryVO from '@/common/types/WatchHistoryVO';
-import { COOKIE } from '@/common/types/DlVideoType';
-import { CoreMessage } from 'ai';
+import {VideoLearningClipPage} from '@/common/types/vo/VideoLearningClipVO';
+import {VideoLearningClipStatusVO} from '@/common/types/vo/VideoLearningClipStatusVO';
+import { ChatStartParams, ChatStartResult, ChatWelcomeParams } from '@/common/types/chat';
+import { AnalysisStartParams, AnalysisStartResult } from '@/common/types/analysis';
+import {ApiSettingVO} from "@/common/types/vo/api-setting-vo";
+import { WhisperModelStatusVO, WhisperModelSize, WhisperVadModel } from '@/common/types/vo/whisper-model-vo';
+import { VideoInfo } from '@/common/types/video-info';
 
 interface ApiDefinition {
     'eg': { params: string, return: number },
@@ -24,19 +29,10 @@ interface ApiDefinition {
 // 定义额外的接口
 interface AiFuncDef {
     'ai-func/tts': { params: string, return: string };
-    'ai-func/phrase-group': { params: string, return: number };
-    'ai-func/polish': { params: string, return: number };
     'ai-func/format-split': { params: string, return: number };
-    'ai-func/make-example-sentences': { params: { sentence: string, point: string[] }, return: number };
-    'ai-func/punctuation': { params: { no: number, srt: string }, return: number };
-    'ai-func/analyze-grammars': { params: string, return: number };
-    'ai-func/analyze-new-phrases': { params: string, return: number };
-    'ai-func/analyze-new-words': { params: string, return: number };
-    'ai-func/chat': { params: { msgs: CoreMessage[] }, return: number };
-    'ai-func/transcript': { params: { filePath: string }, return: number };
-    'ai-func/explain-select-with-context': { params: { sentence: string, selectedWord: string }, return: number };
-    'ai-func/explain-select': { params: { word: string }, return: number };
-    'ai-func/translate-with-context': { params: { sentence: string, context: string[] }, return: number };
+    'ai-func/transcript': { params: { filePath: string }, return: void };
+    'ai-func/cancel-transcription': { params: { filePath: string }, return: boolean };
+    'ai-func/get-active-transcription-tasks': { params: void, return: unknown[] };
 }
 
 interface DpTaskDef {
@@ -49,6 +45,8 @@ interface SystemDef {
     'system/info': {
         params: void, return: {
             isWindows: boolean,
+            isMac: boolean,
+            isLinux: boolean,
             pathSeparator: string,
         }
     };
@@ -81,18 +79,46 @@ interface SystemDef {
     'system/open-folder/cache': { params: void, return: void };
     'system/window-size/change': { params: WindowState, return: void };
     'system/window-size': { params: void, return: WindowState };
-    'system/check-update': { params: void, return: Release[] };
+    'system/window-buttons/visibility': { params: boolean, return: void };
+    'system/check-update': { params: { mode?: 'toast' }, return: UpdateCheckResult };
     'system/open-url': { params: string, return: void };
     'system/app-version': { params: void, return: string };
+    'system/test-renderer-api': { params: void, return: void };
 }
 
 interface AiTransDef {
     'ai-trans/batch-translate': { params: string[], return: Map<string, string> };
-    'ai-trans/word': { params: string, return: YdRes | null };
+    'ai-trans/word': {
+        params: { word: string; forceRefresh?: boolean; requestId?: string },
+        return: YdRes | OpenAIDictionaryResult | null
+    };
+    // 新的翻译接口 - 按组请求翻译(立即返回，后端异步处理)
+    'ai-trans/request-group-translation': {
+        params: {
+            fileHash: string,
+            indices: number[],
+            useCache?: boolean
+        },
+        return: void
+    };
+    // 测试腾讯翻译API
+    'ai-trans/test-tencent': { params: void, return: void };
+    // 测试新的翻译流程
+    'ai-trans/test-new-flow': { params: void, return: void };
+}
+
+interface ChatDef {
+    'chat/start': { params: ChatStartParams, return: ChatStartResult };
+    'chat/welcome': { params: ChatWelcomeParams, return: ChatStartResult };
+}
+
+interface ChatAnalysisDef {
+    'chat/analysis/start': { params: AnalysisStartParams, return: AnalysisStartResult };
 }
 
 interface WatchHistoryDef {
     'watch-history/list': { params: string, return: WatchHistoryVO[] };
+    'watch-history/list/basic': { params: string, return: WatchHistoryVO[] };
     'watch-history/progress/update': {
         params: { file: string, currentPosition: number },
         return: void
@@ -103,7 +129,6 @@ interface WatchHistoryDef {
     'watch-history/detail': { params: string, return: WatchHistoryVO | null };
     'watch-history/attach-srt': { params: { videoPath: string, srtPath: string | 'same' }, return: void };
     'watch-history/suggest-srt': { params: string, return: string[] };
-    'watch-history/analyse-folder': { params: string, return: { supported: number, unsupported: number } };
     'watch-history/get-next-video': { params: string, return: WatchHistoryVO | null };
 }
 
@@ -124,24 +149,50 @@ interface StorageDef {
     'storage/collection/paths': { params: void, return: string[] };
 }
 
+interface SettingsDef {
+    'settings/services/get-all': { params: void, return: ApiSettingVO };
+    'settings/services/update': { params: { service: string, settings: ApiSettingVO }, return: void };
+    'settings/services/test-openai': { params: void, return: { success: boolean, message: string } };
+    'settings/services/test-tencent': { params: void, return: { success: boolean, message: string } };
+    'settings/services/test-youdao': { params: void, return: { success: boolean, message: string } };
+    'settings/appearance/update': { params: { theme: string; fontSize: string }, return: void };
+    'settings/shortcuts/update': { params: Partial<Record<SettingKey, string>>, return: void };
+    'settings/storage/update': { params: { path: string; collection: string }, return: void };
+    'settings/translation/update': { params: { engine: 'tencent' | 'openai'; tencentSecretId?: string; tencentSecretKey?: string }, return: void };
+    'settings/youdao/update': { params: { secretId: string; secretKey: string }, return: void };
+}
+
+interface WhisperModelDef {
+    'whisper/models/status': { params: void, return: WhisperModelStatusVO };
+    'whisper/models/download': { params: { modelSize: WhisperModelSize }, return: { success: boolean; message: string } };
+    'whisper/models/download-vad': { params: { vadModel: WhisperVadModel }, return: { success: boolean; message: string } };
+}
+
 interface SplitVideoDef {
     'split-video/preview': { params: string, return: ChapterParseResult[] };
     'split-video/split': {
         params: { videoPath: string, srtPath: string | null, chapters: ChapterParseResult[] },
         return: string
     };
-    'split-video/thumbnail': { params: { filePath: string, time: number }, return: string };
+    'split-video/thumbnail': {
+        params: {
+            filePath: string,
+            time: number,
+            quality?: 'low' | 'medium' | 'high' | 'ultra',
+            width?: number,
+            format?: 'jpg' | 'png'
+        },
+        return: string
+    };
     'split-video/video-length': { params: string, return: number };
-}
-
-interface DownloadVideoDef {
-    'download-video/url': { params: { url: string, cookies: COOKIE }, return: number };
 }
 
 interface ConvertDef {
     'convert/to-mp4': { params: string, return: number };
     'convert/from-folder': { params: string[], return: FolderVideos[] };
     'convert/video-length': { params: string, return: number };
+    'convert/video-info': { params: string, return: VideoInfo };
+    'convert/suggest-html5-video': { params: string, return: string | null };
 
 }
 
@@ -179,12 +230,15 @@ export type ApiDefinitions = ApiDefinition
     & DpTaskDef
     & SystemDef
     & AiTransDef
+    & ChatDef
+    & ChatAnalysisDef
     & WatchHistoryDef
     & SubtitleControllerDef
     & SplitVideoDef
     & SubtitleTimestampAdjustmentControllerDef
     & StorageDef
-    & DownloadVideoDef
+    & SettingsDef
+    & WhisperModelDef
     & ConvertDef
     & FavoriteClipsDef
     & TagDef

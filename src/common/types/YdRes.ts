@@ -21,3 +21,30 @@ export interface Basic {
     'us-speech': string;
     explains: string[];
 }
+
+export interface OpenAIDictionaryExample {
+    sentence: string;
+    translation?: string;
+    explanation?: string;
+}
+
+export interface OpenAIDictionaryDefinition {
+    partOfSpeech?: string;
+    meaning: string;
+    explanation?: string;
+    translationNote?: string;
+    synonyms?: string[];
+    antonyms?: string[];
+    relatedPhrases?: string[];
+    examples?: OpenAIDictionaryExample[];
+}
+
+export interface OpenAIDictionaryResult {
+    word: string;
+    phonetic?: string;
+    ukPhonetic?: string;
+    usPhonetic?: string;
+    definitions: OpenAIDictionaryDefinition[];
+    examples?: OpenAIDictionaryExample[];
+    pronunciation?: string;
+}

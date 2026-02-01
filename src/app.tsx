@@ -29,15 +29,13 @@ import { HashRouter, Route, Routes } from 'react-router-dom';
 // 页面组件
 import HomePage from '@/fronted/pages/HomePage';
 import TitleBarLayout from '@/fronted/pages/TieleBarLayout';
-import PlayerWithControlsPage from '@/fronted/pages/PlayerWithControlsPage';
+import PlayerWithControlsPage from '@/fronted/pages/player/PlayerWithControlsPage';
 import Layout from '@/fronted/pages/Layout';
 import About from '@/fronted/pages/About';
 
 // 设置页面组件
 import SettingLayout from '@/fronted/pages/setting/SettingLayout';
 import ShortcutSetting from '@/fronted/pages/setting/ShortcutSetting';
-import YouDaoSetting from '@/fronted/pages/setting/YouDaoSetting';
-import TenantSetting from '@/fronted/pages/setting/TenantSetting';
 import StorageSetting from '@/fronted/pages/setting/StorageSetting';
 import CheckUpdate from '@/fronted/pages/setting/CheckUpdate';
 import AppearanceSetting from '@/fronted/pages/setting/AppearanceSetting';
@@ -61,6 +59,7 @@ import {startListeningToDpTasks} from "@/fronted/hooks/useDpTaskCenter";
 // 通知系统
 import { Toaster } from '@/fronted/components/ui/sonner';
 import toast, { Toaster as HotToaster } from 'react-hot-toast';
+import RendererToastHost from '@/fronted/components/shared/toasts/RendererToastHost';
 
 /**
  * 获取 Electron API 实例

@@ -7,7 +7,7 @@ import {
     TableRow
 } from '@/fronted/components/ui/table';
 import {cn} from "@/fronted/lib/utils";
-import TranscriptItem from '@/fronted/components/TranscriptItem';
+import TranscriptItem from '@/fronted/pages/transcript/TranscriptItem';
 import React from 'react';
 import useTranscript from '@/fronted/hooks/useTranscript';
 import { useShallow } from 'zustand/react/shallow';
@@ -33,7 +33,6 @@ const TranscriptTable = () => {
                     <TranscriptItem
                         key={f.file}
                         file={f.file}
-                        taskId={f.taskId}
                         onStart={() => {
                             onTranscript(f.file);
                         }}

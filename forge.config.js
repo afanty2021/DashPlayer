@@ -14,9 +14,41 @@ const packageJson = JSON.parse(readFileSync('./package.json', 'utf8'));
 
 const config = {
     packagerConfig: {
-        asar: true,
+        // `@electron-forge/plugin-vite` defaults to packaging only `/.vite/**`.
+        // DashPlayer has runtime deps (incl. native modules) that must ship with the app.
+        // Keep the package small by still ignoring everything else.
+        ignore: (file: string) => {
+            if (!file) return false;
+            if (file.startsWith('/.vite')) return false;
+            if (file === '/node_modules') return false;
+
+            // Only ship the minimum set of runtime deps from `node_modules`.
+            // Everything else should be bundled by Vite into `/.vite/**`.
+            const keptNodeModulePrefixes = [
+                '/node_modules/better-sqlite3',
+                '/node_modules/bindings',
+                '/node_modules/file-uri-to-path',
+                '/node_modules/fluent-ffmpeg',
+                '/node_modules/async',
+                '/node_modules/which',
+                '/node_modules/isexe',
+                '/node_modules/inversify',
+                '/node_modules/reflect-metadata',
+            ];
+
+            for (const prefix of keptNodeModulePrefixes) {
+                if (file === prefix || file.startsWith(`${prefix}/`)) {
+                    return false;
+                }
+            }
+
+            return true;
+        },
+        asar: {
+            unpack: '**/*.{wasm,node}',
+        },
         icon: './assets/icons/icon',
-        extraResource: ['./drizzle', './lib', './scripts'],
+        extraResource: ['./drizzle', './lib', './scripts', './resources'],
         executableName: 'dash-player',
         name: 'DashPlayer',
         osxSign: {
@@ -45,6 +77,7 @@ const config = {
         new MakerRpm({
             options: {
                 name: 'dash-player',
+                bin: 'dash-player',
                 productName: 'DashPlayer',
                 icon: './assets/icons/icon.png',
             },
@@ -52,6 +85,7 @@ const config = {
         new MakerDeb({
             options: {
                 name: 'dash-player',
+                bin: 'dash-player',
                 productName: 'DashPlayer',
                 icon: './assets/icons/icon.png',
             },

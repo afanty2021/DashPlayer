@@ -1,35 +1,28 @@
 import CustomMessage, { MsgType } from '@/common/types/msg/interfaces/CustomMessage';
 import { Topic } from '@/fronted/hooks/useChatPanel';
-import { CoreMessage } from 'ai';
+import { ModelMessage } from 'ai';
 
 
 class HumanTopicMessage implements CustomMessage<HumanTopicMessage> {
     private readonly topic: Topic;
     public content: string;
-    public phraseGroupTask: number;
 
-    constructor(topic: Topic, text: string, phraseGroupTask: number) {
+    constructor(topic: Topic, text: string) {
         this.topic = topic;
         this.content = text;
-        this.phraseGroupTask = phraseGroupTask;
     }
 
-    async toMsg(): Promise<CoreMessage[]> {
-        return [
-            {
-                role: 'system',
-                content: 'You are an English teacher, specialized in teaching English.'
-            },
-            {
-                role: 'user',
-                content: `请帮我分析 "${this.content}"`
-            }];
+    async toMsg(): Promise<ModelMessage[]> {
+        return [{
+            role: 'user',
+            content: `请帮我分析 "${this.content}"`
+        }];
     }
 
     msgType: MsgType = 'human-topic';
 
     copy(): HumanTopicMessage {
-        return new HumanTopicMessage(this.topic, this.content, this.phraseGroupTask);
+        return new HumanTopicMessage(this.topic, this.content);
     }
 
     getTopic(): Topic {
@@ -37,7 +30,7 @@ class HumanTopicMessage implements CustomMessage<HumanTopicMessage> {
     }
 
     getTaskIds(): number[] {
-        return [this.phraseGroupTask];
+        return [];
     }
 }
 

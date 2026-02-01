@@ -16,12 +16,13 @@ import useConvert from '@/fronted/hooks/useConvert';
 import { useShallow } from 'zustand/react/shallow';
 import { emptyFunc } from '@/common/utils/Util';
 import { ConvertResult } from '@/common/types/tonvert-type';
-import { DpTaskState } from '@/backend/db/tables/dpTask';
+import { DpTaskState } from '@/backend/infrastructure/db/tables/dpTask';
 import useDpTaskViewer from '@/fronted/hooks/useDpTaskViewer';
 import StrUtil from '@/common/utils/str-util';
 import UrlUtil from "@/common/utils/UrlUtil";
+import { backendClient } from '@/fronted/application/bootstrap/backendClient';
 
-const api = window.electron;
+const api = backendClient;
 
 const ConvertItem = ({ file, onSelected, className, buttonVariant, onDeleted }: {
     file: string,
@@ -65,7 +66,7 @@ const ConvertItem = ({ file, onSelected, className, buttonVariant, onDeleted }: 
                     className={cn('flex gap-6  p-4 relative rounded-xl overflow-hidden', className)}>
                     <div className={cn('relative w-40 rounded-lg overflow-hidden')}>
                         {url ? <img
-                            src={UrlUtil.file(url)}
+                            src={UrlUtil.toUrl(url)}
                             style={{
                                 aspectRatio: '16/9'
                             }}
@@ -110,7 +111,7 @@ const ConvertItem = ({ file, onSelected, className, buttonVariant, onDeleted }: 
                                 disabled={dpTask?.status === DpTaskState.IN_PROGRESS}
                                 className={cn(buttonVariant === 'small' && 'px-2.5 py-0.5 text-xs h-6')}
                                 size={'sm'} variant={'default'}>
-                                Convert
+                                生成
                             </Button>
                         </div>
                     </div>

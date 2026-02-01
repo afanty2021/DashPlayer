@@ -120,7 +120,6 @@ const electronHandler = {
      * @returns 取消监听的函数
      */
     onTaskUpdate: (func: (task: DpTask) => void) => {
-        console.log('onTaskUpdate');
         return on('dp-task-update', func as never);
     },
 

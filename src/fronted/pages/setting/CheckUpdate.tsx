@@ -1,23 +1,27 @@
-import Header from '@/fronted/components/setting/Header';
-import ItemWrapper from '@/fronted/components/setting/ItemWrapper';
-import FooterWrapper from '@/fronted/components/setting/FooterWrapper';
+import React from 'react';
+import Header from '@/fronted/pages/setting/components/form/Header';
+import ItemWrapper from '@/fronted/pages/setting/components/form/ItemWrapper';
+import FooterWrapper from '@/fronted/pages/setting/components/form/FooterWrapper';
 import { Button } from '@/fronted/components/ui/button';
-import Md from '@/fronted/components/chat/markdown';
+import Md from '@/fronted/components/shared/markdown/Markdown';
 import { codeBlock } from 'common-tags';
 import useSWR from 'swr';
 import { Skeleton } from '@/fronted/components/ui/skeleton';
-import NewTips from '@/fronted/components/NewTips';
+import NewTips from '@/fronted/pages/setting/components/NewTips';
 import { cn } from '@/fronted/lib/utils';
+import { backendClient } from '@/fronted/application/bootstrap/backendClient';
+import { UpdateCheckResult } from '@/common/types/update-check';
 
-const api = window.electron;
+const api = backendClient;
 
 const CheckUpdate = () => {
 
-    const { data: newRelease, isLoading: checking } = useSWR('system/check-update', async () => {
+    const { data: updateResult, isLoading: checking } = useSWR<UpdateCheckResult>('system/check-update', async () => {
         return await api.call('system/check-update');
     });
 
-    const hasNewRelease = (newRelease?.length ?? 0) > 0;
+    const hasNewRelease = (updateResult?.releases?.length ?? 0) > 0;
+    const hasError = updateResult?.status === 'error';
 
     return (
         <div className="w-full h-full flex flex-col gap-4">
@@ -35,8 +39,15 @@ const CheckUpdate = () => {
                         className={cn('p-4 bg-muted/40 rounded border overflow-y-auto scrollbar-thin select-text h-0 flex-1 '
                         )}>
 
-                        {hasNewRelease ? <Md>
-                            {(newRelease ?? []).map((release) => (
+                        {hasError ? (
+                            <div className={'w-full h-full flex flex-col gap-3'}>
+                                <h1>检查更新失败</h1>
+                                <p className="text-muted-foreground text-sm">
+                                    {updateResult?.error ?? '暂时无法获取更新信息，请稍后重试。'}
+                                </p>
+                            </div>
+                        ) : hasNewRelease ? <Md>
+                            {(updateResult?.releases ?? []).map((release) => (
                                 codeBlock`
                             ## ${release.version}
 

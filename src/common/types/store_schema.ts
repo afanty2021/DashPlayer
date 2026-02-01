@@ -28,6 +28,10 @@ export const SettingKeyObj = {
     'apiKeys.openAi.key': '',
     'apiKeys.openAi.endpoint': '',
     'apiKeys.openAi.stream': 'on',
+    'translation.engine': 'tencent',
+    'subtitleTranslation.engine': 'openai',
+    'dictionary.engine': 'openai',
+    'transcription.engine': 'openai',
     'model.gpt.default': 'gpt-4o-mini',
     // Whisper 配置
     'whisper.provider': 'openai', // 'openai' | 'local' | 'aliyun'
@@ -38,6 +42,7 @@ export const SettingKeyObj = {
     'whisper.local.maxConcurrency': 2, // 最大并发转录数
     'appearance.theme': 'light',
     'appearance.fontSize': 'fontSizeLarge',
+    'player.autoPlayNext': 'false',
     'storage.path': '',
     'storage.collection': 'default',
 }

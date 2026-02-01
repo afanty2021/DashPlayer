@@ -1,9 +1,12 @@
 import {create} from 'zustand';
 import {subscribeWithSelector} from 'zustand/middleware';
-import {DpTask, DpTaskState} from '@/backend/db/tables/dpTask';
+import {DpTask, DpTaskState} from '@/backend/infrastructure/db/tables/dpTask';
 import {emptyFunc} from '@/common/utils/Util';
+import { getRendererLogger } from '@/fronted/log/simple-logger';
+import { backendClient } from '@/fronted/application/bootstrap/backendClient';
+import { dpTaskEvents } from '@/fronted/application/bootstrap/dpTaskEvents';
 
-const api = window.electron;
+const api = backendClient;
 
 type UseDpTaskCenterState = {
     tasks: Map<number, DpTask | 'init'>;
@@ -71,7 +74,7 @@ const useDpTaskCenter = create(
             try {
                 const task = await api.call('dp-task/detail', taskId);
                 if (!task) {
-                    console.warn(`Task ${taskId} not found, removing from cache.`);
+                    getRendererLogger('useDpTaskCenter').warn('task not found, removing from cache', { taskId });
                     set(state => {
                         const newTasks = new Map(state.tasks);
                         newTasks.delete(taskId);
@@ -82,7 +85,7 @@ const useDpTaskCenter = create(
                 set(state => ({tasks: new Map(state.tasks).set(taskId, task)}));
                 return task;
             } catch (error) {
-                console.error(`Failed to fetch initial state for task ${taskId}:`, error);
+                getRendererLogger('useDpTaskCenter').error('failed to fetch initial task state', { taskId, error });
                 set(state => {
                     const newTasks = new Map(state.tasks);
                     newTasks.delete(taskId);
@@ -100,10 +103,9 @@ export default useDpTaskCenter;
 let cleanupListener: (() => void) | null = null;
 export const startListeningToDpTasks = () => {
     if (!cleanupListener) {
-        cleanupListener = api.onTaskUpdate((updatedTask: DpTask) => {
+        cleanupListener = dpTaskEvents.onTaskUpdate((updatedTask: DpTask) => {
             if (!updatedTask || !updatedTask.id) return;
-            // console.log('on task update', updatedTask.id, updatedTask.status);
-            useDpTaskCenter.setState(state => ({
+              useDpTaskCenter.setState(state => ({
                 tasks: new Map(state.tasks).set(updatedTask.id, updatedTask)
             }));
         });
@@ -145,7 +147,7 @@ export const getDpTaskResult = async <T>(taskId: number | null | undefined, isSt
         }
         return JSON.parse(task.result);
     } catch (e) {
-        console.error(e);
+        getRendererLogger('useDpTaskCenter').error('task center error', { error: e });
         return null;
     }
 };

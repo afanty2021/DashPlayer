@@ -2,9 +2,11 @@ import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { FolderVideos } from '@/common/types/tonvert-type';
 import useDpTaskCenter from '@/fronted/hooks/useDpTaskCenter';
-import { DpTaskState } from '@/backend/db/tables/dpTask';
+import { DpTaskState } from '@/backend/infrastructure/db/tables/dpTask';
+import { getRendererLogger } from '@/fronted/log/simple-logger';
+import { backendClient } from '@/fronted/application/bootstrap/backendClient';
 
-const api = window.electron;
+const api = backendClient;
 
 
 export type UseConvertState = {
@@ -60,7 +62,7 @@ const useConvert = create(
                 }
             },
             convert: async (file) => {
-                console.log('tasks', get().taskStats);
+                getRendererLogger('useConvert').debug('task stats', { taskStats: Object.fromEntries(get().taskStats) });
                 if (get().taskStats.get(file) && get().taskStats.get(file) === DpTaskState.IN_PROGRESS) {
                     return;
                 }
@@ -79,7 +81,7 @@ const useConvert = create(
                 //videos for
                 const videos = get().folders.find(f => f.folder === folder)?.videos ?? [];
                 for (const video of videos) {
-                    console.log('tasks', get().taskStats);
+                    getRendererLogger('useConvert').debug('task stats', { taskStats: Object.fromEntries(get().taskStats) });
                     if (get().taskStats.get(video) === DpTaskState.IN_PROGRESS) {
                         continue;
                     }

@@ -1,29 +1,27 @@
-import type { ConfigEnv, UserConfig } from 'vite';
 import { defineConfig } from 'vite';
-import { pluginExposeRenderer } from './vite.base.config';
 import react from '@vitejs/plugin-react';
-import path from 'path';
+import path from 'node:path';
+
+const reactCompilerEnv = process.env.REACT_COMPILER?.toLowerCase();
+const enableReactCompiler =
+    reactCompilerEnv !== '0' && reactCompilerEnv !== 'false' && reactCompilerEnv !== 'off';
 
 // https://vitejs.dev/config
-export default defineConfig((env) => {
-    const forgeEnv = env as ConfigEnv<'renderer'>;
-    const { root, mode, forgeConfigSelf } = forgeEnv;
-    const name = forgeConfigSelf.name ?? '';
-
-    return {
-        root,
-        mode,
-        base: './',
-        build: {
-            outDir: `.vite/renderer/${name}`,
+export default defineConfig({
+    plugins: [
+        react(
+            enableReactCompiler
+                ? {
+                    babel: {
+                        plugins: ['babel-plugin-react-compiler'],
+                    },
+                }
+                : undefined
+        ),
+    ],
+    resolve: {
+        alias: {
+            '@': path.resolve(__dirname, './src'),
         },
-        plugins: [pluginExposeRenderer(name),react()],
-        resolve: {
-            preserveSymlinks: true,
-            alias: {
-                "@": path.resolve(__dirname, "./src"),
-            },
-        },
-        clearScreen: false,
-    } as UserConfig;
+    },
 });

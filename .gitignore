@@ -93,7 +93,7 @@ out/
 
 .idea
 
-lib/
+/lib/
 /dist/
 
 # Claude Code AI Flow and Swarm coordination data
