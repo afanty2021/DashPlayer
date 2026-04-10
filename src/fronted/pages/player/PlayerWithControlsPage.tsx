@@ -16,7 +16,7 @@ import PlaybackLayout from '@/fronted/pages/player/components/srt-layout/Layout'
 import {SWR_KEY} from '@/fronted/lib/swr-util';
 import PathUtil from '@/common/utils/PathUtil';
 // removed old controller usage; player v2 actions used instead
-import { playerV2Actions } from '@/fronted/components/feature/player/player-v2';
+import { playerActions } from '@/fronted/components/feature/player/player';
 import StrUtil from '@/common/utils/str-util';
 import CollUtil from '@/common/utils/CollUtil';
 import MediaUtil from '@/common/utils/MediaUtil';
@@ -27,12 +27,14 @@ import useSystem from '@/fronted/hooks/useSystem';
 import useConvert from '@/fronted/hooks/useConvert';
 import { toast as sonnerToast } from 'sonner';
 import { backendClient } from '@/fronted/application/bootstrap/backendClient';
+import { useTranslation as useI18nTranslation } from 'react-i18next';
 
 const api = backendClient;
 const logger = getRendererLogger('PlayerWithControlsPage');
 const MODE_SWITCH_TOAST_ID = 'mode-switch-toast';
 const COMPAT_TOAST_ID = 'compat-playback-toast';
 const PlayerWithControlsPage = () => {
+    const { t } = useI18nTranslation('player');
     const {videoId} = useParams();
     const navigate = useNavigate();
     const {data: video} = useSWR([SWR_KEY.PLAYER_P, videoId], ([_key, videoId]) => api.call('watch-history/detail', videoId));
@@ -133,7 +135,7 @@ const PlayerWithControlsPage = () => {
             const videoPath = PathUtil.join(video.basePath, video.fileName);
             if (videoPath && vp !== videoPath) {
                 useFile.getState().updateFile(videoPath);
-                playerV2Actions.play();
+                playerActions.play();
             }
 
             setTimeout(() => {
@@ -162,12 +164,12 @@ const PlayerWithControlsPage = () => {
                         if (audioCodec.length > 0 && !suspiciousAudioCodecs.has(audioCodec)) {
                             return;
                         }
-                        sonnerToast('该视频可能在播放器里无声', {
+                        sonnerToast(t('compatToastTitle'), {
                             id: COMPAT_TOAST_ID,
                             duration: 6000,
                             position: 'top-right',
                             action: {
-                                label: '生成兼容版本',
+                                label: t('compatToastAction'),
                                 onClick: () => {
                                     useConvert.getState().addFiles([videoPath]);
                                     navigate('/convert');

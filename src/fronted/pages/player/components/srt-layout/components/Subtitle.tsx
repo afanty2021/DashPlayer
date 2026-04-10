@@ -4,8 +4,8 @@ import { shallow } from 'zustand/shallow';
 import { twJoin } from 'tailwind-merge';
 import { AnimatePresence, motion } from 'framer-motion';
 import SideSentence from '../SideSentence';
-import { usePlayerV2State } from '@/fronted/hooks/usePlayerV2State';
-import { playerV2Actions } from '@/fronted/components/feature/player/player-v2';
+import { usePlayerState } from '@/fronted/hooks/usePlayerState';
+import { playerActions } from '@/fronted/components/feature/player/player';
 import useLayout from '@/fronted/hooks/useLayout';
 import { cn } from '@/fronted/lib/utils';
 import useSubtitleScroll, { useSubtitleScrollState } from '@/fronted/hooks/useSubtitleScroll';
@@ -17,7 +17,7 @@ import { Sentence } from '@/common/types/SentenceC';
 export default function Subtitle() {
     const [mouseOver, setMouseOver] = useState(false);
     const showSideBar = useLayout((state) => state.showSideBar);
-    const { currentSentence, subtitle, singleRepeat, virtualGroup } = usePlayerV2State((s) => ({
+    const { currentSentence, subtitle, singleRepeat, virtualGroup } = usePlayerState((s) => ({
         currentSentence: s.currentSentence,
         subtitle: s.sentences,
         singleRepeat: s.singleRepeat,
@@ -122,10 +122,10 @@ export default function Subtitle() {
 
         if (normalizedEnd !== normalizedStart) {
             selectionRangeRef.current = { start: normalizedStart, end: normalizedEnd };
-            playerV2Actions.setVirtualGroupByIndexRange(normalizedStart, normalizedEnd);
+            playerActions.setVirtualGroupByIndexRange(normalizedStart, normalizedEnd);
         } else {
             selectionRangeRef.current = null;
-            playerV2Actions.clearVirtualGroup();
+            playerActions.clearVirtualGroup();
         }
     }, []);
 
@@ -145,8 +145,8 @@ export default function Subtitle() {
         ) {
             applySelectionRange(startIndex, lastIndex);
         } else if (sentence) {
-            playerV2Actions.clearVirtualGroup();
-            playerV2Actions.gotoSentence(sentence);
+            playerActions.clearVirtualGroup();
+            playerActions.gotoSentence(sentence);
             if (scrollState === 'USER_BROWSING') {
                 delaySetNormal();
             }

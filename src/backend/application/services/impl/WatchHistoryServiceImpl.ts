@@ -1,5 +1,4 @@
 import { inject, injectable, postConstruct } from 'inversify';
-import LocationService, { LocationType } from '@/backend/application/services/LocationService';
 import TYPES from '@/backend/ioc/types';
 import { WatchHistory, WatchHistoryType } from '@/backend/infrastructure/db/tables/watchHistory';
 import { ObjUtil } from '@/backend/utils/ObjUtil';
@@ -16,12 +15,15 @@ import MediaUtil from '@/common/utils/MediaUtil';
 import FileUtil from '@/backend/utils/FileUtil';
 import WatchHistoryRepository from '@/backend/application/ports/repositories/WatchHistoryRepository';
 import RendererGateway from '@/backend/application/ports/gateways/renderer/RendererGateway';
+import StorageDirectoryProvider, {
+    StorageDirectoryTarget,
+} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 
 @injectable()
 export default class WatchHistoryServiceImpl implements WatchHistoryService {
-    @inject(TYPES.LocationService)
-    private locationService!: LocationService;
+    @inject(TYPES.StorageDirectoryProvider)
+    private storageDirectoryProvider!: StorageDirectoryProvider;
     @inject(TYPES.MediaService)
     private mediaService!: MediaService;
     @inject(TYPES.RendererGateway)
@@ -31,6 +33,65 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
 
     private mapId(folder: string, name: string, type: WatchHistoryType) {
         return ObjUtil.hash(`${folder}-${name}-${type}`);
+    }
+
+    /**
+     * 判断路径是否确实已经不存在。
+     *
+     * 行为说明：
+     * - 仅将 `ENOENT` 和 `ENOTDIR` 视为真实缺失；
+     * - 权限丢失等其他异常一律保留给上层恢复流程处理，避免误删历史记录。
+     *
+     * @param targetPath 待检查路径。
+     * @returns `true` 表示路径确实缺失。
+     */
+    private isPathMissing(targetPath: string): boolean {
+        try {
+            fs.statSync(targetPath);
+            return false;
+        } catch (error) {
+            if (this.isPathMissingError(error)) {
+                return true;
+            }
+            if (this.isPathAccessError(error)) {
+                return false;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * 判断路径访问异常是否属于真实缺失。
+     *
+     * @param error `fs` 抛出的异常。
+     * @returns `true` 表示异常对应真实缺失。
+     */
+    private isPathMissingError(error: unknown): boolean {
+        return this.readFsErrorCode(error) === 'ENOENT' || this.readFsErrorCode(error) === 'ENOTDIR';
+    }
+
+    /**
+     * 判断路径访问异常是否属于权限问题。
+     *
+     * @param error `fs` 抛出的异常。
+     * @returns `true` 表示异常对应权限问题。
+     */
+    private isPathAccessError(error: unknown): boolean {
+        return !this.isPathMissingError(error);
+    }
+
+    /**
+     * 读取 `fs` 异常中的错误码。
+     *
+     * @param error `fs` 抛出的异常。
+     * @returns 错误码；若无法识别则返回空字符串。
+     */
+    private readFsErrorCode(error: unknown): string {
+        if (error && typeof error === 'object' && 'code' in error) {
+            const { code } = error as { code?: unknown };
+            return typeof code === 'string' ? code : '';
+        }
+        return '';
     }
 
     private preferHtml5VideoPath(filePath: string): string {
@@ -116,6 +177,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
                 }
                 bathPath = record.base_path;
             }
+            await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(bathPath);
             if (!fs.existsSync(bathPath) || !fs.statSync(bathPath).isDirectory()) {
                 return [];
             }
@@ -171,6 +233,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
                 }
                 bathPath = record.base_path;
             }
+            await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(bathPath);
             if (!fs.existsSync(bathPath) || !fs.statSync(bathPath).isDirectory()) {
                 return [];
             }
@@ -187,7 +250,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
             }
             const result = [];
             for (const record of records) {
-                const vo = this.buildBasicVoFromFile(record);
+                const vo = await this.buildBasicVoFromFile(record);
                 if (vo) {
                     result.push(vo);
                 }
@@ -199,7 +262,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
         const result = [];
         const files: WatchHistory[] = await this.watchHistoryRepository.listByProjectType(WatchHistoryType.FILE);
         for (const file of files) {
-            const vo = this.buildBasicVoFromFile(file);
+            const vo = await this.buildBasicVoFromFile(file);
             if (vo) {
                 result.push(vo);
             }
@@ -218,13 +281,14 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
 
     public async create(filePaths: string[], concatLibrary = false): Promise<string[]> {
         if (concatLibrary) {
-            const lp = this.locationService.getDetailLibraryPath(LocationType.VIDEOS);
+            const lp = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.VIDEOS);
             filePaths = filePaths.map((f) => path.join(lp, f));
         }
         return this.createInner(filePaths);
     }
 
     public async attachSrt(videoPath: string, srtPath: string | 'same'): Promise<void> {
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(videoPath);
         if (srtPath === 'same') {
             srtPath = path.join(path.dirname(videoPath), path.basename(videoPath, path.extname(videoPath)) + '.srt');
         }
@@ -236,6 +300,10 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
         if (!record) {
             return null;
         }
+
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(
+            path.join(record.base_path, record.file_name),
+        );
 
         const html5CandidatePath = this.html5VariantPathFromRecord(record);
         if (!this.isHtml5VariantFileName(record.file_name) && fs.existsSync(html5CandidatePath)) {
@@ -269,7 +337,13 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
 
     private async createInner(files: string[]): Promise<string[]> {
         const ids: string[] = [];
-        const existFiles = files.filter(file => fs.existsSync(file));
+        const existFiles: string[] = [];
+        for (const file of files) {
+            await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(file);
+            if (fs.existsSync(file)) {
+                existFiles.push(file);
+            }
+        }
         const folders = existFiles.filter(file => fs.statSync(file).isDirectory());
         if (CollUtil.isNotEmpty(folders)) {
             for (const folder of folders) {
@@ -317,7 +391,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
             toDeleteIds.push(record.id);
         }
         await Promise.all(toDeleteIds.map(id => this.deleteById(id)));
-        const libraryPath = this.locationService.getDetailLibraryPath(LocationType.VIDEOS);
+        const libraryPath = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.VIDEOS);
         await FileUtil.cleanEmptyDirectories(libraryPath);
     }
 
@@ -361,7 +435,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
             return null;
         }
         for (const video of folderVideos) {
-            const vo = this.buildBasicVoFromFile(video);
+            const vo = await this.buildBasicVoFromFile(video);
             if (vo) {
                 return {
                     ...vo,
@@ -375,12 +449,16 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
     private async buildVoFromFile(history: WatchHistory): Promise<WatchHistoryVO | null> {
         const { base_path, file_name } = history;
         const filePath = path.join(base_path, file_name);
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(filePath);
         if (!fs.existsSync(filePath)) {
             return null;
         }
         let srtFile = history.srt_file;
         if (StrUtil.isNotBlank(srtFile)) {
-            const exists = await FileUtil.fileExists(srtFile);
+            await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(srtFile);
+            const exists = await fs.promises.stat(srtFile)
+                .then((stats) => stats.isFile())
+                .catch(() => false);
             if (!exists) {
                 srtFile = '';
             }
@@ -403,9 +481,10 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
         };
     }
 
-    private buildBasicVoFromFile(history: WatchHistory): WatchHistoryVO | null {
+    private async buildBasicVoFromFile(history: WatchHistory): Promise<WatchHistoryVO | null> {
         const { base_path, file_name } = history;
         const filePath = path.join(base_path, file_name);
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(filePath);
         if (!fs.existsSync(filePath)) {
             return null;
         }
@@ -424,7 +503,8 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
 
 
     private async listSrtFiles(folder: string): Promise<string[]> {
-        const files = await FileUtil.listFiles(folder);
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(folder);
+        const files = await fs.promises.readdir(folder);
         const fullPaths = files
             .filter(file => MediaUtil.isSubtitle(file))
             .map(file => path.join(folder, file));
@@ -442,6 +522,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
 
     private async tryCreateFromFolder(folder: string): Promise<string[]> {
         const ids: string[] = [];
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(folder);
         if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) {
             return ids;
         }
@@ -463,6 +544,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
      */
     private async tryCreate(video: string, type: WatchHistoryType = WatchHistoryType.FILE): Promise<string[]> {
         const ids: string[] = [];
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(video);
         if (!fs.existsSync(video)) {
             return ids;
         }
@@ -492,6 +574,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
      */
     private async attachSrtInner(videoPath: string, srtPath: string) {
         videoPath = this.preferHtml5VideoPath(videoPath);
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(videoPath);
         if (!fs.existsSync(videoPath)) {
             return;
         }
@@ -504,6 +587,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
             srtPath = path.join(folder, srtPath);
         }
 
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(srtPath);
         if (!fs.existsSync(srtPath)) {
             return;
         }
@@ -521,8 +605,9 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
 
     async suggestSrt(file: string): Promise<string[]> {
         file = this.preferHtml5VideoPath(file);
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(file);
         const folder = path.dirname(file);
-        const files = await FileUtil.listFiles(folder);
+        const files = await fs.promises.readdir(folder);
         const srtInFolder = files.filter(file => MediaUtil.isSubtitle(file))
             .map(file => path.join(folder, file));
         return MatchSrt.matchAll(file, srtInFolder);
@@ -534,11 +619,11 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
      * @private
      */
     private async syncLibrary() {
-        const libraryPath = this.locationService.getDetailLibraryPath(LocationType.VIDEOS);
+        const libraryPath = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.VIDEOS);
         if (!fs.existsSync(libraryPath)) {
             return;
         }
-        const files = await FileUtil.listFiles(libraryPath);
+        const files = await fs.promises.readdir(libraryPath);
         const videoFiles = files.filter(file => MediaUtil.isMedia(file))
             .map(file => path.join(libraryPath, file));
         for (const video of videoFiles) {
@@ -557,7 +642,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
     private async cleanDeletedHistory() {
         const files = await this.watchHistoryRepository.listDistinctBasePathFileName();
 
-        const deletedFiles = files.filter(file => !fs.existsSync(path.join(file.base_path, file.file_name)));
+        const deletedFiles = files.filter(file => this.isPathMissing(path.join(file.base_path, file.file_name)));
 
         for (const { base_path, file_name } of deletedFiles) {
             await this.watchHistoryRepository.deleteByBasePathFileName(base_path, file_name);
@@ -577,7 +662,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
      * @private
      */
     private async deleteById(id: string) {
-        const libraryPath = this.locationService.getDetailLibraryPath(LocationType.VIDEOS);
+        const libraryPath = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.VIDEOS);
         const record = await this.watchHistoryRepository.findById(id);
         if (!record) {
             return;
@@ -586,7 +671,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
         // 删除文件
         const filePath = path.join(record.base_path, record.file_name);
         if (filePath.startsWith(libraryPath)) {
-            await FileUtil.deleteFile(filePath);
+            await fs.promises.unlink(filePath).catch(() => undefined);
             this.rendererGateway.fireAndForget('ui/show-toast', {
                 message: '该文件位于视频库中，已为您删除原文件',
                 variant: 'info',
@@ -597,7 +682,7 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
         if (record.srt_file && record.srt_file.startsWith(libraryPath)) {
             const srtExists = await this.watchHistoryRepository.findBySrtFile(record.srt_file);
             if (CollUtil.isEmpty(srtExists)) {
-                await FileUtil.deleteFile(record.srt_file);
+                await fs.promises.unlink(record.srt_file).catch(() => undefined);
             }
         }
     }
@@ -650,10 +735,16 @@ export default class WatchHistoryServiceImpl implements WatchHistoryService {
                         WatchHistoryType.DIRECTORY,
                     );
                     if (html5Record) {
+                        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(
+                            path.join(html5Record.base_path, html5Record.file_name),
+                        );
                         return await this.buildVoFromFile(html5Record);
                     }
                 }
             }
+            await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(
+                path.join(primary.base_path, primary.file_name),
+            );
             return await this.buildVoFromFile(primary);
         }
 

@@ -14,12 +14,40 @@ export const MemoizedReactMarkdown: FC<Options> = memo(
 const TTS_LINK_PREFIX = 'tts:';
 const SWITCH_LINK_PREFIX = 'switch:';
 
+/**
+ * 转义要回填到 Markdown 文本中的链接标签，避免标签内容破坏原始语法。
+ */
 const escapeLinkText = (value: string): string => {
     return value.replace(/[[\]()]/g, (match) => `\\${match}`);
 };
 
+/**
+ * 将自定义协议链接统一规范成可被 Markdown 稳定解析的形式。
+ * 这里会兼容 `[文本](switch:原文)` 这类未编码写法，避免空格和标点导致链接失效。
+ */
+const normalizeCustomProtocolLinks = (value: string): string => {
+    return value.replace(/\[([^\][]+)\]\(((?:tts|switch):[\s\S]*?)\)/g, (_full, rawLabel, rawHref) => {
+        const separatorIndex = rawHref.indexOf(':');
+        if (separatorIndex < 0) {
+            return _full;
+        }
+
+        const protocol = rawHref.slice(0, separatorIndex + 1);
+        const rawTarget = rawHref.slice(separatorIndex + 1).trim();
+        if (!rawTarget) {
+            return _full;
+        }
+
+        const normalizedTarget = encodeURIComponent(safeDecode(rawTarget));
+        return `[${rawLabel}](${protocol}${normalizedTarget})`;
+    });
+};
+
+/**
+ * 预处理 AI 自定义标记，并转成统一的 Markdown 链接格式。
+ */
 const preprocessMarkers = (value: string): string => {
-    return value.replace(/\[\[(tts|switch):([\s\S]*?)\]\]/g, (_full, markerType, markerValue) => {
+    const withMarkersExpanded = value.replace(/\[\[(tts|switch):([\s\S]*?)\]\]/g, (_full, markerType, markerValue) => {
         if (markerType === 'tts') {
             const text = markerValue.trim();
             if (!text) {
@@ -40,8 +68,12 @@ const preprocessMarkers = (value: string): string => {
         }
         return _full;
     });
+    return normalizeCustomProtocolLinks(withMarkersExpanded);
 };
 
+/**
+ * 将 ReactMarkdown 传入的子节点递归还原成纯文本，供自定义组件读取标签文案。
+ */
 const asText = (children: any): string => {
     if (typeof children === 'string') {
         return children;
@@ -55,6 +87,9 @@ const asText = (children: any): string => {
     return '';
 };
 
+/**
+ * 安全解码自定义链接目标，避免遇到非标准编码时直接抛错。
+ */
 const safeDecode = (value: string): string => {
     try {
         return decodeURIComponent(value);

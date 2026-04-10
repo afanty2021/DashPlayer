@@ -9,11 +9,14 @@ import Controller from '@/backend/adapters/controllers/Controller';
 import StrUtil from '@/common/utils/str-util';
 import TYPES from '@/backend/ioc/types';
 import OpenDialogOptions = Electron.OpenDialogOptions;
-import LocationService from '@/backend/application/services/LocationService';
 import WindowPort from '@/backend/application/ports/gateways/window/WindowPort';
 import SystemConfigService from '@/backend/application/services/SystemConfigService';
 import { UPDATE_TOAST_LAST_SHOWN_AT_KEY } from '@/common/constants/systemConfigKeys';
 import { UpdateCheckResult } from '@/common/types/update-check';
+import { RESET_DB_RESYNC_FLAG } from '@/common/constants/resetDb';
+import StorageDirectoryProvider, {
+    StorageDirectoryTarget,
+} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 /**
  * eg: .mkv -> mkv
@@ -31,8 +34,8 @@ export default class SystemController implements Controller {
 
     @inject(TYPES.WindowPort)
     private windowPort!: WindowPort;
-    @inject(TYPES.LocationService)
-    private locationService!: LocationService;
+    @inject(TYPES.StorageDirectoryProvider)
+    private storageDirectoryProvider!: StorageDirectoryProvider;
     @inject(TYPES.SystemConfigService)
     private systemConfigService!: SystemConfigService;
 
@@ -86,7 +89,7 @@ export default class SystemController implements Controller {
 
     public async resetDb() {
         await clearDB();
-        app.relaunch();
+        app.relaunch({ args: [...process.argv.slice(1), RESET_DB_RESYNC_FLAG] });
         app.quit();
     }
 
@@ -137,8 +140,16 @@ export default class SystemController implements Controller {
         return app.getVersion();
     }
 
+    /**
+     * 打开当前媒体库根目录。
+     *
+     * 行为说明：
+     * - 仅当媒体库目录健康可访问时才允许打开；
+     * - 目录异常时直接抛出显式错误，交由前端提示用户重新选择。
+     */
     public async openCacheDir() {
-        await shell.openPath(this.locationService.getBaseLibraryPath());
+        const libraryRoot = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.LIBRARY_ROOT);
+        await shell.openPath(libraryRoot);
     }
 
     public registerRoutes(): void {
@@ -148,12 +159,12 @@ export default class SystemController implements Controller {
         registerRoute('system/path-info', (p) => this.pathInfo(p));
         registerRoute('system/reset-db', (_) => this.resetDb());
         registerRoute('system/open-folder', (p) => this.openFolder(p));
-        registerRoute('system/open-folder/cache', (p) => this.openCacheDir());
+        registerRoute('system/open-folder/cache', () => this.openCacheDir());
         registerRoute('system/window-size/change', (p) => this.changeWindowSize(p));
-        registerRoute('system/window-size', (p) => this.windowState());
-        registerRoute('system/window-buttons/visibility', (p) => this.setWindowButtonsVisible(p));
+        registerRoute('system/window-size', () => this.windowState());
+        registerRoute('system/window-buttons/visibility', (visible) => this.setWindowButtonsVisible(visible));
         registerRoute('system/check-update', (p) => this.checkUpdate(p));
         registerRoute('system/open-url', (p) => this.openUrl(p));
-        registerRoute('system/app-version', (p) => this.appVersion());
+        registerRoute('system/app-version', () => this.appVersion());
     }
 }

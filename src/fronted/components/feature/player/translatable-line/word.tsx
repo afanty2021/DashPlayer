@@ -7,13 +7,12 @@ import { YdRes, OpenAIDictionaryResult } from '@/common/types/YdRes';
 import useSWR from 'swr';
 import Style from '@/fronted/styles/style';
 import { cn } from '@/fronted/lib/utils';
-import useCopyModeController from '@/fronted/hooks/useCopyModeController';
 import StrUtil from '@/common/utils/str-util';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
 import Eb from '@/fronted/components/shared/common/Eb';
 import useVocabulary from '@/fronted/hooks/useVocabulary';
 import { useTransLineTheme } from './translatable-theme';
-import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
+import { usePlayer } from '@/fronted/hooks/usePlayer';
 import useDictionaryStream, { createDictionaryRequestId } from '@/fronted/hooks/useDictionaryStream';
 import useSetting from '@/fronted/hooks/useSetting';
 import { backendClient } from '@/fronted/application/bootstrap/backendClient';
@@ -37,7 +36,7 @@ export interface WordParam {
 /**
  * 以左上角为原点，顺时针旋转
  */
-export const getBox = (ele: HTMLDivElement): Feature<Polygon> => {
+export const getBox = (ele: HTMLElement): Feature<Polygon> => {
     if (!ele) {
         return turf.polygon([[]]);
     }
@@ -54,9 +53,7 @@ export const getBox = (ele: HTMLDivElement): Feature<Polygon> => {
     ]);
 };
 const Word = ({word, original, pop, requestPop, show, alwaysDark, classNames}: WordParam) => {
-    const setCopyContent = useCopyModeController((s)=>s.setCopyContent);
-    const isCopyMode = useCopyModeController((s)=>s.isCopyMode);
-    const pause = usePlayerV2((s) => s.pause);
+    const pause = usePlayer((s) => s.pause);
     const vocabularyStore = useVocabulary();
     const [hovered, setHovered] = useState(false);
     const [playLoading, setPlayLoading] = useState(false);
@@ -65,13 +62,13 @@ const Word = ({word, original, pop, requestPop, show, alwaysDark, classNames}: W
     const theme = useTransLineTheme();
 
     // 检查是否是词汇单词
-    const cleanWord = word.toLowerCase().replace(/[^\w]/g, '');
+    const cleanWord = word.toLowerCase().replace(/[^\w-]/g, '');
     const isVocabularyWord = cleanWord && vocabularyStore.isVocabularyWord(cleanWord);
 
     const hoverBg = classNames?.hover ?? (alwaysDark ? 'hover:bg-neutral-600' : theme.word.hoverBgClass);
     const vocabCls = isVocabularyWord ? (classNames?.vocab ?? theme.word.vocabHighlightClass) : undefined;
     const setting = useSetting((state) => state.setting);
-    const dictionaryEngineRaw = setting('dictionary.engine');
+    const dictionaryEngineRaw = setting('providers.dictionary');
     const dictionaryEngine =
         dictionaryEngineRaw === 'youdao' || dictionaryEngineRaw === 'openai'
             ? dictionaryEngineRaw
@@ -81,7 +78,7 @@ const Word = ({word, original, pop, requestPop, show, alwaysDark, classNames}: W
 
     const dictionaryEntry = useDictionaryStream((state) => state.getActiveEntry(original));
 
-    const shouldFetch = hovered && !isCopyMode;
+    const shouldFetch = hovered;
 
     const {
         data: dictionaryResponse,
@@ -159,9 +156,26 @@ const Word = ({word, original, pop, requestPop, show, alwaysDark, classNames}: W
             setIsRefreshing(false);
         }
     };
-    const eleRef = useRef<HTMLDivElement | null>(null);
+    const eleRef = useRef<HTMLSpanElement | null>(null);
     const popperRef = useRef<HTMLDivElement | null>(null);
     const resquested = useRef(false);
+
+    /**
+     * 判断当前是否存在与该单词相关的有效选区。
+     *
+     * 说明：
+     * - 拖拽复制完成后会产生非折叠选区，此时不应触发发音。
+     * - 双击被拦截后，正常单击不会留下选区，因此不影响点按发音。
+     */
+    const hasMeaningfulSelection = (target: HTMLElement): boolean => {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            return false;
+        }
+
+        return selection.containsNode(target, true);
+    };
+
     useEffect(() => {
         // 如果鼠标移出了凸多边形，就关闭
         let timeout: NodeJS.Timeout;
@@ -177,7 +191,6 @@ const Word = ({word, original, pop, requestPop, show, alwaysDark, classNames}: W
             const b = turf.booleanPointInPolygon(point, hull!);
             clearTimeout(timeout);
             if (!b) {
-                console.log('mouse moved out of hull, setting hovered to false');
                 setHovered(false);
                 return;
             }
@@ -189,7 +202,6 @@ const Word = ({word, original, pop, requestPop, show, alwaysDark, classNames}: W
             }, 50);
         };
         if (hovered) {
-            console.log('adding mousemove listener, hovered:', hovered);
             document.addEventListener('mousemove', mouseEvent);
         } else {
             resquested.current = false;
@@ -200,10 +212,11 @@ const Word = ({word, original, pop, requestPop, show, alwaysDark, classNames}: W
         };
     }, [hovered, requestPop]);
 
-    const handleWordClick = async (e:React.MouseEvent) => {
-        if(isCopyMode){
-            e.stopPropagation();
-            setCopyContent(word);
+    /**
+     * 单击单词时播放发音；若用户刚通过拖拽产生选区，则跳过播放。
+     */
+    const handleWordClick = async (event: React.MouseEvent<HTMLSpanElement>) => {
+        if (hasMeaningfulSelection(event.currentTarget)) {
             return;
         }
 
@@ -239,52 +252,48 @@ const Word = ({word, original, pop, requestPop, show, alwaysDark, classNames}: W
     };
 
     return (
-        <div className={cn('flex gap-1')}>
-            <div
+        <span>
+            <span
                 ref={eleRef}
-                className="rounded select-none"
+                className="rounded cursor-pointer"
                 onMouseOver={() => {
                     setHovered(true);
                     pause();
                 }}
                 onClick={(e) => {
-                    handleWordClick(e);
+                    void handleWordClick(e);
                     if (!hovered) {
                         setHovered(true);
                     }
                 }}
             >
-                {pop && hovered && !isCopyMode ? (
-                    <Eb>
-                        <WordPop
-                            word={word}
-                            translation={dictionaryResponse}
-                            ref={popperRef}
-                            hoverColor={alwaysDark ? 'bg-neutral-600' : theme.word.popReferenceBgClass}
-                            isLoading={isWordLoading || isRefreshing}
-                            openaiStreamingData={openaiDictionaryEnabled ? dictionaryEntry?.data : null}
-                            isStreaming={openaiDictionaryEnabled && !!dictionaryEntry && !dictionaryEntry.isComplete}
-                            onRefresh={handleRefresh}
-                        />
-                    </Eb>
-                ) : (
-                    <div
-                        className={cn(
-                            'rounded select-none',
-                            !show && ['text-transparent', Style.word_hover_bg],
-                            hoverBg,
-                            vocabCls,
-                            classNames?.word
-                        )}
-                        onMouseLeave={() => {
-                            setHovered(false);
-                        }}
-                    >
-                        {word}
-                    </div>
-                )}
-            </div>
-        </div>
+                <span
+                    className={cn(
+                        'rounded select-text',
+                        !show && ['text-transparent', Style.word_hover_bg],
+                        hoverBg,
+                        hovered && pop && (alwaysDark ? 'bg-neutral-600' : theme.word.popReferenceBgClass),
+                        vocabCls,
+                        classNames?.word,
+                    )}
+                >
+                    {word}
+                </span>
+            </span>
+            {pop && hovered ? (
+                <Eb>
+                    <WordPop
+                        translation={dictionaryResponse}
+                        referenceElement={eleRef.current}
+                        ref={popperRef}
+                        isLoading={isWordLoading || isRefreshing}
+                        openaiStreamingData={openaiDictionaryEnabled ? dictionaryEntry?.data : null}
+                        isStreaming={openaiDictionaryEnabled && !!dictionaryEntry && !dictionaryEntry.isComplete}
+                        onRefresh={handleRefresh}
+                    />
+                </Eb>
+            ) : null}
+        </span>
     );
 };
 

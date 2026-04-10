@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import VolumeSlider from '../VolumeSlider';
-import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
+import { usePlayer } from '@/fronted/hooks/usePlayer';
 import {cn} from "@/fronted/lib/utils";
 import SpeedSlider from '../SpeedSlider';
 import { Slider } from '@/fronted/components/ui/slider';
@@ -20,20 +20,20 @@ const PodcastControlBar = ({
                                  className
                              }: PodcastControlBarProps) => {
     const logger = getRendererLogger('PodcastControlBar');
-    const playTime = usePlayerV2((s) => s.internal.exactPlayTime);
-    const duration = usePlayerV2((s) => s.duration);
-    const volume = usePlayerV2((s) => s.volume);
-    const setVolume = usePlayerV2((s) => s.setVolume);
-    const playbackRate = usePlayerV2((s) => s.playbackRate);
-    const setPlaybackRate = usePlayerV2((s) => s.setPlaybackRate);
-    const muted = usePlayerV2((s) => s.muted);
-    const setMuted = usePlayerV2((s) => s.setMuted);
-    const onPlay = usePlayerV2((s) => s.play);
-    const onPause = usePlayerV2((s) => s.pause);
-    const playing = usePlayerV2((s) => s.playing);
-    const seekTo = usePlayerV2((s) => s.seekTo);
-    const setAutoPause = usePlayerV2((s) => s.setAutoPause);
-    const setSingleRepeat = usePlayerV2((s) => s.setSingleRepeat);
+    const playTime = usePlayer((s) => s.internal.exactPlayTime);
+    const duration = usePlayer((s) => s.duration);
+    const volume = usePlayer((s) => s.volume);
+    const setVolume = usePlayer((s) => s.setVolume);
+    const playbackRate = usePlayer((s) => s.playbackRate);
+    const setPlaybackRate = usePlayer((s) => s.setPlaybackRate);
+    const muted = usePlayer((s) => s.muted);
+    const setMuted = usePlayer((s) => s.setMuted);
+    const onPlay = usePlayer((s) => s.play);
+    const onPause = usePlayer((s) => s.pause);
+    const playing = usePlayer((s) => s.playing);
+    const seekTo = usePlayer((s) => s.seekTo);
+    const setAutoPause = usePlayer((s) => s.setAutoPause);
+    const setSingleRepeat = usePlayer((s) => s.setSingleRepeat);
     const [mouseOver, setMouseOver] = useState<boolean>(false);
     const [currentValue, setCurrentValue] = useState(0);
     const currentValueUpdateTime = useRef<number>(0);

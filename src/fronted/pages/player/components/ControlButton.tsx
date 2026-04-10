@@ -15,16 +15,19 @@ const process = (values: string) => values
     // remove left right up down space
     .filter((k) => k !== 'left' && k !== 'right' && k !== 'up' && k !== 'down' && k !== 'space')
 
+/**
+ * 渲染控制面板悬浮按钮，并绑定打开控制面板快捷键。
+ */
 export default function ControlButton() {
     const changeSideBar = useLayout((s) => s.changeSideBar);
     const showSideBar = useLayout((s) => s.showSideBar);
     const pauseMeasurement = useSubtitleScrollState((state) => state.pauseMeasurement);
     const fullScreen = useLayout(s => s.fullScreen);
-    const setting = useSetting((s) => s.setting);
+    const openControlPanelShortcut = useSetting((s) => s.values.get('shortcut.openControlPanel') ?? '');
 
-    useHotkeys(process(setting('shortcut.openControlPanel')), () => {
+    useHotkeys(process(openControlPanelShortcut), () => {
         changeSideBar(!showSideBar);
-    });
+    }, [changeSideBar, showSideBar]);
     return (
         <AnimatePresence>
             {!fullScreen && (

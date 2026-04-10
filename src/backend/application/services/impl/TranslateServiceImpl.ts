@@ -26,38 +26,51 @@ import TranslateService from '@/backend/application/services/AiTransServiceImpl'
 import { Sentence } from '@/common/types/SentenceC';
 import CacheService from '@/backend/application/services/CacheService';
 import {
+    buildSubtitleBatchPrompt,
     fillSubtitlePrompt,
     getSubtitlePromptTemplate,
     OPENAI_SUBTITLE_PLAIN_PROMPT,
     resolveSubtitleStyleWithSignature
 } from '@/common/constants/openaiSubtitlePrompts';
-import { RendererTranslationItem, TranslationMode } from '@/common/types/TranslationResult';
+import { RendererTranslationFailure, RendererTranslationItem, TranslationMode } from '@/common/types/TranslationResult';
 
 const openAIDictionaryExampleSchema = z.object({
+    sentence: z.string().describe('Example sentence in English'),
+    translation: z.string().describe('Translation of the example sentence in Simplified Chinese')
+});
+
+const openAIDictionaryDefinitionSchema = z.object({
+    partOfSpeech: z.string().describe('Part of speech, e.g. noun, verb, adjective; empty string when unavailable'),
+    meaning: z.string().describe('Meaning or translation in Simplified Chinese'),
+    examples: z.array(openAIDictionaryExampleSchema).describe('Examples illustrating this specific meaning')
+});
+
+const openAIDictionaryResultSchema = z.object({
+    word: z.string().describe('The input word'),
+    phonetic: z.string().describe('International phonetic alphabet pronunciation; empty string when unavailable'),
+    definitions: z.array(openAIDictionaryDefinitionSchema).describe('Array of structured definitions'),
+});
+
+const openAIDictionaryCacheExampleSchema = z.object({
     sentence: z.string().describe('Example sentence in English'),
     translation: z.string().optional().describe('Translation of the example sentence in Simplified Chinese'),
     explanation: z.string().optional().describe('Usage notes or explanation in Simplified Chinese')
 });
 
-const openAIDictionaryDefinitionSchema = z.object({
+const openAIDictionaryCacheDefinitionSchema = z.object({
     partOfSpeech: z.string().optional().describe('Part of speech, e.g. noun, verb, adjective'),
     meaning: z.string().optional().describe('Meaning or translation in Simplified Chinese'),
-    explanation: z.string().optional().describe('Additional clarification in Simplified Chinese'),
-    translationNote: z.string().optional().describe('Extra translation notes or nuances in Simplified Chinese'),
-    synonyms: z.array(z.string()).optional().describe('Synonyms in English'),
-    antonyms: z.array(z.string()).optional().describe('Antonyms in English'),
-    relatedPhrases: z.array(z.string()).optional().describe('Common related phrases or collocations'),
-    examples: z.array(openAIDictionaryExampleSchema).optional().describe('Examples illustrating this specific meaning')
+    examples: z.array(openAIDictionaryCacheExampleSchema).optional().describe('Examples illustrating this specific meaning')
 });
 
-const openAIDictionaryResultSchema = z.object({
+const openAIDictionaryCacheSchema = z.object({
     word: z.string().describe('The input word'),
-    phonetic: z.string().optional().describe('International phonetic alphabet pronunciation'),
-    ukPhonetic: z.string().optional().describe('UK pronunciation in IPA'),
-    usPhonetic: z.string().optional().describe('US pronunciation in IPA'),
-    definitions: z.array(openAIDictionaryDefinitionSchema).optional().describe('Array of structured definitions'),
-    examples: z.array(openAIDictionaryExampleSchema).optional().describe('General example sentences with translations'),
-    pronunciation: z.string().optional().describe('Pronunciation audio URL if available')
+    phonetic: z.string().optional().nullable().describe('International phonetic alphabet pronunciation'),
+    ukPhonetic: z.string().optional().nullable().describe('UK pronunciation in IPA'),
+    usPhonetic: z.string().optional().nullable().describe('US pronunciation in IPA'),
+    definitions: z.array(openAIDictionaryCacheDefinitionSchema).optional().describe('Array of structured definitions'),
+    examples: z.array(openAIDictionaryCacheExampleSchema).optional().describe('General example sentences with translations'),
+    pronunciation: z.string().optional().nullable().describe('Pronunciation audio URL if available')
 });
 
 type SubtitleTranslationStorageMode = 'tencent' | `openai_${string}`;
@@ -150,25 +163,12 @@ const sanitizePhonetic = (value?: unknown): string | undefined => {
     return core.length > 0 ? core : undefined;
 };
 
-const sanitizeStringArray = (value?: unknown): string[] | undefined => {
+/**
+ * 清洗例句数组并补齐必填字段；非法项会被过滤。
+ */
+const sanitizeExamples = (value?: unknown): OpenAIDictionaryExample[] => {
     if (!Array.isArray(value)) {
-        return undefined;
-    }
-    const uniqueValues = new Set<string>();
-    value.forEach((item) => {
-        if (typeof item === 'string') {
-            const trimmed = item.trim();
-            if (trimmed) {
-                uniqueValues.add(trimmed);
-            }
-        }
-    });
-    return uniqueValues.size > 0 ? Array.from(uniqueValues) : undefined;
-};
-
-const sanitizeExamples = (value?: unknown): OpenAIDictionaryExample[] | undefined => {
-    if (!Array.isArray(value)) {
-        return undefined;
+        return [];
     }
 
     const normalized: OpenAIDictionaryExample[] = value
@@ -181,23 +181,16 @@ const sanitizeExamples = (value?: unknown): OpenAIDictionaryExample[] | undefine
             if (!sentence) {
                 return null;
             }
-            const translation = sanitizeString(record.translation);
-            const explanation = sanitizeString(record.explanation);
-
-            const normalizedExample: OpenAIDictionaryExample = { sentence };
-            if (translation) {
-                normalizedExample.translation = translation;
-            }
-            if (explanation) {
-                normalizedExample.explanation = explanation;
-            }
-            return normalizedExample;
+            const translation = sanitizeString(record.translation) ?? '';
+            return { sentence, translation };
         })
         .filter((example): example is OpenAIDictionaryExample => example !== null);
-
-    return normalized.length > 0 ? normalized : undefined;
+    return normalized;
 };
 
+/**
+ * 清洗释义数组并补齐必填字段；无效释义会被过滤。
+ */
 const sanitizeDefinitions = (value?: unknown): OpenAIDictionaryDefinition[] => {
     if (!Array.isArray(value)) {
         return [];
@@ -215,65 +208,44 @@ const sanitizeDefinitions = (value?: unknown): OpenAIDictionaryDefinition[] => {
                 return null;
             }
 
-            const normalizedDefinition: OpenAIDictionaryDefinition = { meaning };
-
-            const partOfSpeech = sanitizeString(record.partOfSpeech);
-            if (partOfSpeech) {
-                normalizedDefinition.partOfSpeech = partOfSpeech;
-            }
-
-            const explanation = sanitizeString(record.explanation);
-            if (explanation) {
-                normalizedDefinition.explanation = explanation;
-            }
-
-            const translationNote = sanitizeString(record.translationNote);
-            if (translationNote) {
-                normalizedDefinition.translationNote = translationNote;
-            }
-
-            const synonyms = sanitizeStringArray(record.synonyms);
-            if (synonyms) {
-                normalizedDefinition.synonyms = synonyms;
-            }
-
-            const antonyms = sanitizeStringArray(record.antonyms);
-            if (antonyms) {
-                normalizedDefinition.antonyms = antonyms;
-            }
-
-            const relatedPhrases = sanitizeStringArray(record.relatedPhrases);
-            if (relatedPhrases) {
-                normalizedDefinition.relatedPhrases = relatedPhrases;
-            }
-
-            const examples = sanitizeExamples(record.examples);
-            if (examples) {
-                normalizedDefinition.examples = examples;
-            }
-
-            return normalizedDefinition;
+            return {
+                partOfSpeech: sanitizeString(record.partOfSpeech) ?? '',
+                meaning,
+                examples: sanitizeExamples(record.examples)
+            };
         })
         .filter((definition): definition is OpenAIDictionaryDefinition => definition !== null);
 };
 
-type OpenAIDictionaryResultLike = z.infer<typeof openAIDictionaryResultSchema> | OpenAIDictionaryResult;
+type OpenAIDictionaryResultLike = z.infer<typeof openAIDictionaryCacheSchema> | OpenAIDictionaryResult;
 
+/**
+ * 将 OpenAI 原始/缓存字典结果归一化为前端约定的简化必填结构。
+ */
 const sanitizeDictionaryResult = (value: OpenAIDictionaryResultLike): OpenAIDictionaryResult => ({
     word: sanitizeString(value.word) ?? '',
-    phonetic: sanitizePhonetic(value.phonetic),
-    ukPhonetic: sanitizePhonetic(value.ukPhonetic),
-    usPhonetic: sanitizePhonetic(value.usPhonetic),
+    phonetic: sanitizePhonetic(value.phonetic)
+        ?? sanitizePhonetic('ukPhonetic' in value ? value.ukPhonetic : undefined)
+        ?? sanitizePhonetic('usPhonetic' in value ? value.usPhonetic : undefined)
+        ?? '',
     definitions: sanitizeDefinitions(value.definitions),
-    examples: sanitizeExamples(value.examples),
-    pronunciation: sanitizeString(value.pronunciation)
 });
 
 const deepEqual = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+const buildRequestedTranslationKeys = (fileHash: string, indices: number[]): string[] => indices.map((index) => `${fileHash}:${index}`);
 
 @injectable()
 export default class TranslateServiceImpl implements TranslateService {
     private readonly logger = getMainLogger('TranslateServiceImpl');
+    /**
+     * 记录进行中的单词词典查询，避免同 provider + 同单词被短时间重复触发。
+     *
+     * 约束：
+     * - 仅用于非强制刷新请求。
+     * - key 由 provider 与归一化后的单词组成。
+     * - 请求完成后必须立即清理，避免脏状态长期驻留。
+     */
+    private readonly wordLookupInFlight = new Map<string, Promise<YdRes | OpenAIDictionaryResult | null>>();
     @inject(TYPES.YouDaoClientProvider)
     private youDaoProvider!: ClientProviderService<YouDaoDictionaryClient>;
     @inject(TYPES.TencentClientProvider)
@@ -314,6 +286,18 @@ export default class TranslateServiceImpl implements TranslateService {
         });
     }
 
+    /**
+     * 通知前端将失败句子的状态恢复为可重试。
+     *
+     * @param failure 失败条目描述。
+     */
+    private notifySubtitleTranslationFailed(failure: RendererTranslationFailure): void {
+        if (!failure.fileHash || failure.keys.length === 0) {
+            return;
+        }
+        this.rendererGateway.fireAndForget('translation/batch-failed', failure);
+    }
+
     public async groupTranslate(params: {
         fileHash: string;
         indices: number[];
@@ -323,10 +307,16 @@ export default class TranslateServiceImpl implements TranslateService {
         if (!indices || indices.length === 0) {
             return;
         }
+        const requestedKeys = buildRequestedTranslationKeys(fileHash, indices);
 
         const engine = await this.settingService.getCurrentTranslationProvider();
         if (!engine) {
             this.logger.error('没有启用的翻译服务');
+            this.notifySubtitleTranslationFailed({
+                fileHash,
+                keys: requestedKeys,
+                provider: 'openai',
+            });
             this.showSubtitleTranslationToast({
                 message: '未启用字幕翻译服务，请在设置中配置后重试',
                 dedupeKey: 'subtitle-translation:engine-not-enabled',
@@ -348,6 +338,12 @@ export default class TranslateServiceImpl implements TranslateService {
         const srtData = this.cacheService.get('cache:srt', fileHash);
         if (!srtData || !srtData.sentences) {
             this.logger.error(`未找到 Hash 为 ${fileHash} 的字幕缓存`);
+            this.notifySubtitleTranslationFailed({
+                fileHash,
+                keys: requestedKeys,
+                provider: engine,
+                mode: openAiMode ?? undefined,
+            });
             this.showSubtitleTranslationToast({
                 message: '未找到字幕缓存，请重新加载字幕或重新打开视频后再试',
                 dedupeKey: `subtitle-translation:missing-srt-cache:${fileHash}`,
@@ -364,6 +360,7 @@ export default class TranslateServiceImpl implements TranslateService {
             if (cachedResults.size > 0) {
                 const cachedTranslations: RendererTranslationItem[] = Array.from(cachedResults.entries()).map(([key, translation]) => ({
                     key,
+                    fileHash,
                     translation,
                     provider: rendererMeta.provider,
                     mode: rendererMeta.mode,
@@ -383,6 +380,7 @@ export default class TranslateServiceImpl implements TranslateService {
         if (skippedSentences.length > 0) {
             const fallbackTranslations: RendererTranslationItem[] = skippedSentences.map(sentence => ({
                 key: sentence.translationKey,
+                fileHash: sentence.fileHash,
                 translation: sentence.text,
                 provider: rendererMeta.provider,
                 mode: rendererMeta.mode,
@@ -409,6 +407,12 @@ export default class TranslateServiceImpl implements TranslateService {
         } else if (engine === 'openai') {
             if (!openAiMode || !promptConfig) {
                 this.logger.error('OpenAI 翻译配置缺失，无法执行翻译');
+                this.notifySubtitleTranslationFailed({
+                    fileHash,
+                    keys: sentencesToTranslate.map((sentence) => sentence.translationKey),
+                    provider: 'openai',
+                    mode: openAiMode ?? undefined,
+                });
                 this.showSubtitleTranslationToast({
                     message: 'OpenAI 字幕翻译配置缺失，请检查设置',
                     dedupeKey: 'subtitle-translation:openai-config-missing',
@@ -423,6 +427,11 @@ export default class TranslateServiceImpl implements TranslateService {
         const currentProvider = await this.settingService.getCurrentTranslationProvider();
         if (currentProvider !== 'tencent') {
             this.logger.error('腾讯翻译服务未启用');
+            this.notifySubtitleTranslationFailed({
+                fileHash: tasks[0]?.fileHash ?? '',
+                keys: tasks.map((task) => task.translationKey),
+                provider: 'tencent',
+            });
             this.showSubtitleTranslationToast({
                 message: '腾讯字幕翻译未启用，请检查设置',
                 dedupeKey: 'subtitle-translation:tencent-not-enabled',
@@ -433,6 +442,11 @@ export default class TranslateServiceImpl implements TranslateService {
         const tencentClient = this.tencentProvider.getClient();
         if (!tencentClient) {
             this.logger.error('Tencent 翻译客户端未初始化');
+            this.notifySubtitleTranslationFailed({
+                fileHash: tasks[0]?.fileHash ?? '',
+                keys: tasks.map((task) => task.translationKey),
+                provider: 'tencent',
+            });
             this.showSubtitleTranslationToast({
                 message: '腾讯翻译客户端未初始化，请检查密钥配置',
                 dedupeKey: 'subtitle-translation:tencent-client-not-ready',
@@ -453,6 +467,7 @@ export default class TranslateServiceImpl implements TranslateService {
                     resultsToSave.set(task.translationKey, translation);
                     resultsToRender.push({
                         key: task.translationKey,
+                        fileHash: task.fileHash,
                         translation,
                         provider: rendererMeta.provider,
                         mode: rendererMeta.mode,
@@ -468,6 +483,11 @@ export default class TranslateServiceImpl implements TranslateService {
                 });
                 this.logger.info(`腾讯翻译完成，成功回传并保存 ${resultsToRender.length} 条结果`);
             } else {
+                this.notifySubtitleTranslationFailed({
+                    fileHash: tasks[0]?.fileHash ?? '',
+                    keys: tasks.map((task) => task.translationKey),
+                    provider: 'tencent',
+                });
                 this.showSubtitleTranslationToast({
                     message: '腾讯字幕翻译未返回有效结果，请稍后重试或检查服务配置',
                     dedupeKey: 'subtitle-translation:tencent-empty-result',
@@ -475,6 +495,11 @@ export default class TranslateServiceImpl implements TranslateService {
             }
         } catch (error) {
             this.logger.error('腾讯批量翻译失败:', error);
+            this.notifySubtitleTranslationFailed({
+                fileHash: tasks[0]?.fileHash ?? '',
+                keys: tasks.map((task) => task.translationKey),
+                provider: 'tencent',
+            });
             this.showSubtitleTranslationToast({
                 message: '腾讯字幕翻译请求失败',
                 dedupeKey: 'subtitle-translation:tencent-request-failed',
@@ -483,6 +508,16 @@ export default class TranslateServiceImpl implements TranslateService {
         }
     }
 
+    /**
+     * 使用 OpenAI 进行小窗口结构化字幕翻译。
+     * 说明：窗口只用于提升上下文理解，最终结果仍按句保存与回推。
+     *
+     * @param tasks 当前需要翻译的目标句集合。
+     * @param allSentences 当前字幕文件的全部句子。
+     * @param storageMode 当前缓存模式。
+     * @param openAiMode OpenAI 字幕模式。
+     * @param promptConfig Prompt 模板与风格配置。
+     */
     private async processOpenAIBatch(
         tasks: Sentence[],
         allSentences: Sentence[],
@@ -493,6 +528,12 @@ export default class TranslateServiceImpl implements TranslateService {
         const currentProvider = await this.settingService.getCurrentTranslationProvider();
         if (currentProvider !== 'openai') {
             this.logger.error('OpenAI 翻译服务未启用');
+            this.notifySubtitleTranslationFailed({
+                fileHash: tasks[0]?.fileHash ?? '',
+                keys: tasks.map((task) => task.translationKey),
+                provider: 'openai',
+                mode: openAiMode,
+            });
             this.showSubtitleTranslationToast({
                 message: 'OpenAI 字幕翻译未启用，请检查设置',
                 dedupeKey: 'subtitle-translation:openai-not-enabled',
@@ -500,9 +541,15 @@ export default class TranslateServiceImpl implements TranslateService {
             return;
         }
 
-        const model = this.aiProviderService.getModel();
+        const model = this.aiProviderService.getModel('subtitleTranslation');
         if (!model) {
             this.logger.error('OpenAI 模型未配置');
+            this.notifySubtitleTranslationFailed({
+                fileHash: tasks[0]?.fileHash ?? '',
+                keys: tasks.map((task) => task.translationKey),
+                provider: 'openai',
+                mode: openAiMode,
+            });
             this.showSubtitleTranslationToast({
                 message: 'OpenAI 模型未配置，请在设置中选择模型/填写 Key',
                 dedupeKey: 'subtitle-translation:openai-model-missing',
@@ -510,100 +557,102 @@ export default class TranslateServiceImpl implements TranslateService {
             return;
         }
 
-        const schema = this.buildOpenAISchema(openAiMode);
-
+        const schema = this.buildOpenAIBatchSchema(openAiMode);
+        const requestedKeys = new Set(tasks.map((task) => task.translationKey));
+        const windows = this.buildOpenAIWindows(tasks, allSentences);
         let failedCount = 0;
         let firstError: unknown = null;
-        const taggedLog = this.logger.withTags(['subtitle', 'ai-json']);
-        const translationPromises = tasks.map(async (task) => {
-            try {
-                const currentIndex = task.index;
-                const prevSentence = allSentences[currentIndex - 1]?.text || '';
-                const nextSentence = allSentences[currentIndex + 1]?.text || '';
-                const prompt = this.buildOpenAIPrompt(task.text, prevSentence, nextSentence, promptConfig);
+        const resultsToSave = new Map<string, string>();
+        const failedKeys = new Set<string>();
 
-                const { partialOutputStream } = streamText({
+        for (const windowSentences of windows) {
+            try {
+                const prompt = buildSubtitleBatchPrompt(
+                    windowSentences.map((sentence) => ({
+                        key: sentence.translationKey,
+                        text: sentence.text
+                    })),
+                    promptConfig.style
+                );
+                const result = streamText({
                     model,
                     output: Output.object({ schema }),
                     prompt,
                 });
-
-                let finalTranslation = '';
-                for await (const partialObject of partialOutputStream) {
-                    taggedLog.debug('subtitle json chunk', {
-                        key: task.translationKey,
+                const streamedTranslations = new Map<string, string>();
+                for await (const partialObject of result.partialOutputStream) {
+                    this.logger.debug('subtitle batch json chunk', {
+                        windowKeys: windowSentences.map((sentence) => sentence.translationKey),
                         keys: Object.keys(partialObject ?? {}),
                     });
-                    const sanitized = sanitizeString(partialObject.translation);
-                    if (sanitized) {
-                        finalTranslation = sanitized;
+                    const partialItems = this.normalizeOpenAIBatchResult(partialObject, windowSentences);
+                    const partialUpdates = this.buildStreamingSubtitleUpdates(
+                        partialItems,
+                        requestedKeys,
+                        openAiMode,
+                        streamedTranslations
+                    );
+                    if (partialUpdates.length > 0) {
                         this.rendererGateway.fireAndForget('translation/batch-result', {
-                            translations: [{
-                                key: task.translationKey,
-                                translation: finalTranslation,
-                                provider: 'openai',
-                                mode: openAiMode,
-                                isComplete: false
-                            }]
+                            translations: partialUpdates,
                         });
                     }
                 }
 
-                if (!finalTranslation) {
-                    const plainPrompt = this.buildOpenAIPlainPrompt(task.text, prevSentence, nextSentence, promptConfig);
-                    const textStream = streamText({ model, prompt: plainPrompt });
-                    let collected = '';
-                    for await (const chunk of textStream.textStream) {
-                        collected += chunk;
-                        const sanitized = sanitizeString(collected);
-                        if (sanitized) {
-                            finalTranslation = sanitized;
-                            this.rendererGateway.fireAndForget('translation/batch-result', {
-                                translations: [{
-                                    key: task.translationKey,
-                                    translation: finalTranslation,
-                                    provider: 'openai',
-                                    mode: openAiMode,
-                                    isComplete: false
-                                }]
-                            });
-                        }
-                    }
-                }
-
-                if (finalTranslation) {
-                    this.rendererGateway.fireAndForget('translation/batch-result', {
-                        translations: [{
-                            key: task.translationKey,
-                            translation: finalTranslation,
+                const finalObject = await result.output;
+                const normalizedItems = this.normalizeOpenAIBatchResult(finalObject, windowSentences);
+                const requestedInWindow = windowSentences.filter((sentence) => requestedKeys.has(sentence.translationKey));
+                const resolvedRequestedKeys = new Set(
+                    normalizedItems
+                        .map((item) => item.key)
+                        .filter((key) => requestedKeys.has(key))
+                );
+                const finalUpdates: RendererTranslationItem[] = [];
+                normalizedItems.forEach((item) => {
+                    resultsToSave.set(item.key, item.translation);
+                    if (requestedKeys.has(item.key)) {
+                        finalUpdates.push({
+                            key: item.key,
+                            fileHash: item.fileHash,
+                            translation: item.translation,
                             provider: 'openai',
                             mode: openAiMode,
                             isComplete: true
-                        }]
+                        });
+                    }
+                });
+                if (finalUpdates.length > 0) {
+                    this.rendererGateway.fireAndForget('translation/batch-result', {
+                        translations: finalUpdates
                     });
-                    return { key: task.translationKey, translation: finalTranslation };
                 }
-                failedCount += 1;
-                if (!firstError) {
-                    firstError = new Error('empty translation');
+                if (resolvedRequestedKeys.size < requestedInWindow.length) {
+                    requestedInWindow.forEach((sentence) => {
+                        if (!resolvedRequestedKeys.has(sentence.translationKey)) {
+                            failedKeys.add(sentence.translationKey);
+                        }
+                    });
+                    failedCount += requestedInWindow.length - resolvedRequestedKeys.size;
+                    if (!firstError) {
+                        firstError = new Error('openai batch result missing requested items');
+                    }
                 }
             } catch (error) {
-                this.logger.error(`OpenAI 翻译句子失败 (key: ${task.translationKey}):`, error);
-                failedCount += 1;
+                this.logger.error('OpenAI 字幕窗口翻译失败', {
+                    keys: windowSentences.map((sentence) => sentence.translationKey),
+                    error
+                });
+                windowSentences.forEach((sentence) => {
+                    if (requestedKeys.has(sentence.translationKey)) {
+                        failedKeys.add(sentence.translationKey);
+                    }
+                });
+                failedCount += windowSentences.filter((sentence) => requestedKeys.has(sentence.translationKey)).length;
                 if (!firstError) {
                     firstError = error;
                 }
             }
-            return null;
-        });
-
-        const settledResults = await Promise.all(translationPromises);
-        const resultsToSave = new Map<string, string>();
-        settledResults.forEach(res => {
-            if (res) {
-                resultsToSave.set(res.key, res.translation);
-            }
-        });
+        }
 
         if (resultsToSave.size > 0) {
             await this.saveTranslationsByKeys(resultsToSave, storageMode);
@@ -611,12 +660,173 @@ export default class TranslateServiceImpl implements TranslateService {
         }
 
         if (failedCount > 0) {
+            this.notifySubtitleTranslationFailed({
+                fileHash: tasks[0]?.fileHash ?? '',
+                keys: Array.from(failedKeys),
+                provider: 'openai',
+                mode: openAiMode,
+            });
             this.showSubtitleTranslationToast({
                 message: `OpenAI 字幕翻译失败 ${failedCount}/${tasks.length} 条`,
                 dedupeKey: `subtitle-translation:openai-batch-failed:${openAiMode}`,
                 error: firstError,
             });
         }
+    }
+
+    /**
+     * 构建 OpenAI 批量字幕翻译的结构化 schema。
+     *
+     * @param mode 当前字幕模式。
+     * @returns OpenAI 结构化输出 schema。
+     */
+    private buildOpenAIBatchSchema(mode: TranslationMode) {
+        const description = (() => {
+            switch (mode) {
+                case 'zh':
+                    return 'The translated sentence in Simplified Chinese.';
+                case 'simple_en':
+                    return 'The simplified English sentence that preserves the original meaning and subtitle readability.';
+                case 'custom':
+                default:
+                    return 'The generated subtitle sentence that follows the custom style.';
+            }
+        })();
+
+        return z.object({
+            items: z.array(z.object({
+                key: z.string().describe('Original subtitle key.'),
+                translation: z.string().describe(description)
+            }))
+        });
+    }
+
+    /**
+     * 将目标句组织成若干 OpenAI 小窗口。
+     * 说明：窗口默认包含目标句附近的少量上下文，但不会把窗口概念暴露给前端。
+     *
+     * @param tasks 当前请求的目标句。
+     * @param allSentences 当前字幕文件全部句子。
+     * @returns 按窗口组织后的字幕数组。
+     */
+    private buildOpenAIWindows(tasks: Sentence[], allSentences: Sentence[]): Sentence[][] {
+        const sortedIndices = Array.from(new Set(tasks.map((task) => task.index))).sort((a, b) => a - b);
+        const windows: Sentence[][] = [];
+        const coveredRequested = new Set<number>();
+        const contextRadius = 1;
+        const maxWindowSize = 5;
+
+        sortedIndices.forEach((index) => {
+            if (coveredRequested.has(index)) {
+                return;
+            }
+
+            let start = Math.max(0, index - contextRadius);
+            const end = Math.min(allSentences.length - 1, start + maxWindowSize - 1);
+            start = Math.max(0, end - maxWindowSize + 1);
+
+            const windowSentences = allSentences
+                .slice(start, end + 1)
+                .filter((sentence) => sentence && shouldTranslateSubtitleText(sentence.text));
+            if (windowSentences.length === 0) {
+                return;
+            }
+
+            windowSentences.forEach((sentence) => {
+                coveredRequested.add(sentence.index);
+            });
+            windows.push(windowSentences);
+        });
+
+        return windows;
+    }
+
+    /**
+     * 清洗 OpenAI 批量翻译结果，并与窗口内句子做稳定映射。
+     *
+     * @param result OpenAI 返回的结构化结果。
+     * @param windowSentences 当前翻译窗口内的句子。
+     * @returns 可直接保存/回推的句级翻译结果。
+     */
+    private normalizeOpenAIBatchResult(
+        result: unknown,
+        windowSentences: Sentence[]
+    ): Array<{ key: string; fileHash: string; translation: string }> {
+        if (!result || typeof result !== 'object') {
+            return [];
+        }
+
+        const items = (result as { items?: unknown }).items;
+        if (!Array.isArray(items)) {
+            return [];
+        }
+
+        const sentenceMap = new Map(windowSentences.map((sentence) => [sentence.translationKey, sentence]));
+        return items
+            .map((item) => {
+                if (!item || typeof item !== 'object') {
+                    return null;
+                }
+
+                const record = item as Record<string, unknown>;
+                const key = sanitizeString(record.key);
+                if (!key) {
+                    return null;
+                }
+
+                const sentence = sentenceMap.get(key);
+                const translation = sanitizeString(record.translation);
+                if (!sentence || !translation) {
+                    return null;
+                }
+                return {
+                    key,
+                    fileHash: sentence.fileHash,
+                    translation
+                };
+            })
+            .filter((item): item is { key: string; fileHash: string; translation: string } => item !== null);
+    }
+
+    /**
+     * 将结构化流里的窗口结果裁剪为“需要立刻回推给前端的中间结果”。
+     *
+     * @param items 当前已归一化的窗口翻译结果。
+     * @param requestedKeys 本次请求真正需要翻译的句子键集合。
+     * @param openAiMode 当前 OpenAI 字幕模式。
+     * @param streamedTranslations 已向前端发出的最新中间结果，用于去重。
+     * @returns 仅包含新增或变化句子的前端更新项。
+     */
+    private buildStreamingSubtitleUpdates(
+        items: Array<{ key: string; fileHash: string; translation: string }>,
+        requestedKeys: Set<string>,
+        openAiMode: TranslationMode,
+        streamedTranslations: Map<string, string>
+    ): RendererTranslationItem[] {
+        const updates: RendererTranslationItem[] = [];
+
+        items.forEach((item) => {
+            if (!requestedKeys.has(item.key)) {
+                return;
+            }
+
+            const previous = streamedTranslations.get(item.key);
+            if (previous === item.translation) {
+                return;
+            }
+
+            streamedTranslations.set(item.key, item.translation);
+            updates.push({
+                key: item.key,
+                fileHash: item.fileHash,
+                translation: item.translation,
+                provider: 'openai',
+                mode: openAiMode,
+                isComplete: false
+            });
+        });
+
+        return updates;
     }
 
     private buildOpenAISchema(mode: TranslationMode) {
@@ -718,6 +928,56 @@ export default class TranslateServiceImpl implements TranslateService {
             return null;
         }
 
+        if (forceRefresh) {
+            return this.executeWordLookup(str, currentProvider, true, requestId);
+        }
+
+        const lookupKey = this.buildWordLookupKey(currentProvider, str);
+        const existingPromise = this.wordLookupInFlight.get(lookupKey);
+        if (existingPromise) {
+            this.logger.debug('复用进行中的单词查询请求', {
+                provider: currentProvider,
+                word: str,
+                lookupKey,
+            });
+            return existingPromise;
+        }
+
+        const lookupPromise = this.executeWordLookup(str, currentProvider, false, requestId)
+            .finally(() => {
+                this.wordLookupInFlight.delete(lookupKey);
+            });
+        this.wordLookupInFlight.set(lookupKey, lookupPromise);
+        return lookupPromise;
+    }
+
+    /**
+     * 归一化单词查询 key，保证大小写与首尾空白不会影响并发合并。
+     *
+     * @param provider 当前字典 provider。
+     * @param word 原始查询词。
+     * @returns 可用于 in-flight 映射的稳定 key。
+     */
+    private buildWordLookupKey(provider: 'openai' | 'youdao', word: string): string {
+        return `${provider}:${word.trim().toLowerCase()}`;
+    }
+
+    /**
+     * 执行单词词典查询，并优先复用持久化缓存结果。
+     *
+     * @param str 查询单词。
+     * @param currentProvider 当前字典 provider。
+     * @param forceRefresh 是否绕过缓存强制刷新。
+     * @param requestId 渲染层流式请求 id。
+     * @returns 命中缓存或远端查询得到的词典结果。
+     */
+    private async executeWordLookup(
+        str: string,
+        currentProvider: 'openai' | 'youdao',
+        forceRefresh: boolean,
+        requestId?: string
+    ): Promise<YdRes | OpenAIDictionaryResult | null> {
+
         // 如果不是强制刷新，先检查缓存
         if (!forceRefresh) {
             const cacheRes = await this.wordLoad(str, currentProvider);
@@ -750,25 +1010,32 @@ export default class TranslateServiceImpl implements TranslateService {
         return null;
     }
 
+    /**
+     * 使用 OpenAI 生成简化单词卡并在需要时推送流式更新。
+     * @param word 查询单词。
+     * @param requestId 渲染层流式请求 id；为空时仅返回最终结果。
+     * @returns 生成成功返回简化词典结果；无有效释义或异常时返回 null。
+     */
     private async translateWordWithOpenAI(word: string, requestId?: string): Promise<OpenAIDictionaryResult | null> {
         const streamId = requestId ?? `openai-dict-${Date.now()}-${word}`;
-        const taggedLog = this.logger.withTags(['dictionary', 'ai-json']);
+        const streamLogger = this.logger;
 
         try {
-            const model = this.aiProviderService.getModel();
+            const model = this.aiProviderService.getModel('dictionary');
             if (!model) {
                 this.logger.error('OpenAI 模型未配置');
                 return null;
             }
 
-            const prompt = `You are a professional English-Chinese dictionary. Provide thorough, structured dictionary information for the word "${word}".
+            const prompt = `You are a professional English-Chinese dictionary. Provide concise, structured dictionary information for the word "${word}".
 
 Requirements:
-1. Always respond in Simplified Chinese where appropriate (meanings, explanations, translations).
-2. Provide phonetic transcription (IPA) and UK/US variations if they differ.
-3. For each sense, include part of speech (if known), concise meaning (Simplified Chinese), optional explanation, helpful translation notes, and any useful synonyms/antonyms/related phrases (in English).
-4. Attach up to 2 short example sentences for each sense. Each example must include the original English sentence AND a natural Simplified Chinese translation. Add a brief Chinese explanation if helpful.
-5. Optionally provide up to 2 additional overall usage examples with translations if they add value.
+1. Use this exact compact shape only: { word, phonetic, definitions }.
+2. Every field is required; do not omit any field.
+3. definitions item shape: { partOfSpeech, meaning, examples }.
+4. examples item shape: { sentence, translation }.
+5. If unavailable, use empty string for text fields and empty array for list fields.
+6. Keep output concise and practical for a word popup.
 
 Ensure the response strictly matches the provided JSON schema.`;
 
@@ -780,12 +1047,13 @@ Ensure the response strictly matches the provided JSON schema.`;
 
             const aggregated: OpenAIDictionaryResult = {
                 word: sanitizeString(word) ?? word,
+                phonetic: '',
                 definitions: []
             };
             let hasStreamed = false;
 
             for await (const partialObject of partialOutputStream) {
-                taggedLog.debug('dictionary json chunk', {
+                streamLogger.debug('dictionary json chunk', {
                     word,
                     keys: Object.keys(partialObject ?? {}),
                 });
@@ -802,31 +1070,7 @@ Ensure the response strictly matches the provided JSON schema.`;
                 if (partialObject.phonetic !== undefined) {
                     const sanitizedPhoneticValue = sanitizePhonetic(partialObject.phonetic);
                     if (sanitizedPhoneticValue !== aggregated.phonetic) {
-                        aggregated.phonetic = sanitizedPhoneticValue;
-                        changed = true;
-                    }
-                }
-
-                if (partialObject.ukPhonetic !== undefined) {
-                    const sanitizedUkPhonetic = sanitizePhonetic(partialObject.ukPhonetic);
-                    if (sanitizedUkPhonetic !== aggregated.ukPhonetic) {
-                        aggregated.ukPhonetic = sanitizedUkPhonetic;
-                        changed = true;
-                    }
-                }
-
-                if (partialObject.usPhonetic !== undefined) {
-                    const sanitizedUsPhonetic = sanitizePhonetic(partialObject.usPhonetic);
-                    if (sanitizedUsPhonetic !== aggregated.usPhonetic) {
-                        aggregated.usPhonetic = sanitizedUsPhonetic;
-                        changed = true;
-                    }
-                }
-
-                if (partialObject.pronunciation !== undefined) {
-                    const sanitizedPronunciation = sanitizeString(partialObject.pronunciation);
-                    if (sanitizedPronunciation !== aggregated.pronunciation) {
-                        aggregated.pronunciation = sanitizedPronunciation;
+                        aggregated.phonetic = sanitizedPhoneticValue ?? '';
                         changed = true;
                     }
                 }
@@ -835,14 +1079,6 @@ Ensure the response strictly matches the provided JSON schema.`;
                     const sanitizedDefinitions = sanitizeDefinitions(partialObject.definitions);
                     if (!deepEqual(sanitizedDefinitions, aggregated.definitions)) {
                         aggregated.definitions = sanitizedDefinitions;
-                        changed = true;
-                    }
-                }
-
-                if (partialObject.examples !== undefined) {
-                    const sanitizedExamples = sanitizeExamples(partialObject.examples);
-                    if (!deepEqual(sanitizedExamples, aggregated.examples)) {
-                        aggregated.examples = sanitizedExamples;
                         changed = true;
                     }
                 }
@@ -875,7 +1111,7 @@ Ensure the response strictly matches the provided JSON schema.`;
                     await this.emitOpenAIDictionaryUpdate(
                         streamId,
                         sanitizeString(word) ?? word,
-                        { word: sanitizeString(word) ?? word, definitions: [] },
+                        { word: sanitizeString(word) ?? word, phonetic: '', definitions: [] },
                         true
                     );
                 } catch (emitError) {
@@ -886,40 +1122,37 @@ Ensure the response strictly matches the provided JSON schema.`;
         }
     }
 
+    /**
+     * 将简化词典结果推送到渲染层，供弹窗实时刷新。
+     * @param requestId 当前流式请求 id。
+     * @param word 查询单词。
+     * @param data 已归一化的词典数据。
+     * @param isComplete 是否已完成本次流式推送。
+     */
     private async emitOpenAIDictionaryUpdate(
         requestId: string,
         word: string,
         data: OpenAIDictionaryResult,
         isComplete: boolean
     ): Promise<void> {
-        const cloneExamples = (examples?: OpenAIDictionaryExample[]): OpenAIDictionaryExample[] | undefined => {
-            if (!examples) {
-                return undefined;
-            }
+        /**
+         * 深拷贝例句数组，避免渲染层误改后端持有对象。
+         */
+        const cloneExamples = (examples: OpenAIDictionaryExample[]): OpenAIDictionaryExample[] => {
             return examples.map(example => ({
                 sentence: example.sentence,
-                translation: example.translation,
-                explanation: example.explanation
+                translation: example.translation
             }));
         };
 
         const payload: OpenAIDictionaryResult = {
             word: data.word,
             phonetic: data.phonetic,
-            ukPhonetic: data.ukPhonetic,
-            usPhonetic: data.usPhonetic,
             definitions: data.definitions.map(def => ({
                 partOfSpeech: def.partOfSpeech,
                 meaning: def.meaning,
-                explanation: def.explanation,
-                translationNote: def.translationNote,
-                synonyms: def.synonyms ? [...def.synonyms] : undefined,
-                antonyms: def.antonyms ? [...def.antonyms] : undefined,
-                relatedPhrases: def.relatedPhrases ? [...def.relatedPhrases] : undefined,
                 examples: cloneExamples(def.examples)
-            })),
-            examples: cloneExamples(data.examples),
-            pronunciation: data.pronunciation
+            }))
         };
 
         try {
@@ -1000,7 +1233,7 @@ Ensure the response strictly matches the provided JSON schema.`;
         promptConfig: SubtitlePromptConfig
     ): Promise<TransHolder<string>> {
         const result = new TransHolder<string>();
-        const model = this.aiProviderService.getModel();
+        const model = this.aiProviderService.getModel('subtitleTranslation');
         if (!model) {
             this.logger.error('OpenAI 模型未配置');
             return result;
@@ -1008,7 +1241,7 @@ Ensure the response strictly matches the provided JSON schema.`;
 
         const schema = this.buildOpenAISchema(openAiMode);
 
-        const taggedLog = this.logger.withTags(['subtitle', 'ai-json']);
+        const streamLogger = this.logger;
         const translationPromises = sentences.map(async (sentence) => {
             try {
                 const prompt = this.buildOpenAIPrompt(sentence, '', '', promptConfig);
@@ -1020,7 +1253,7 @@ Ensure the response strictly matches the provided JSON schema.`;
 
                 let finalTranslation = '';
                 for await (const partialObject of partialOutputStream) {
-                    taggedLog.debug('subtitle legacy json chunk', {
+                    streamLogger.debug('subtitle legacy json chunk', {
                         sentence: sentence.slice(0, 40),
                         keys: Object.keys(partialObject ?? {}),
                     });
@@ -1071,7 +1304,7 @@ Ensure the response strictly matches the provided JSON schema.`;
         try {
             const parsed = JSON.parse(trans ?? '');
             if (provider === 'openai') {
-                const parsedResult = openAIDictionaryResultSchema.safeParse(parsed);
+                const parsedResult = openAIDictionaryCacheSchema.safeParse(parsed);
                 if (!parsedResult.success) {
                     this.logger.warn('OpenAI 字典缓存格式不正确，忽略本地缓存', {
                         word,

@@ -26,7 +26,7 @@ const SplitFile = () => {
     return (
         <div className={cn('w-full h-full flex flex-col rounded p-4')}>
             <div
-                className={cn('justify-self-end flex mb-10 flex-wrap w-full justify-center items-center gap-2 min-h-20 rounded border border-dashed p-2')}
+                className={cn('flex flex-wrap w-full justify-center items-center gap-2 min-h-14 rounded-lg border border-dashed p-2 mb-3')}
             >
                 <FileSelector onSelected={async (ps) => {
                     const vp = ps.find(MediaUtil.isMedia);

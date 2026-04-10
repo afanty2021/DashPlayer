@@ -6,7 +6,6 @@ import { SettingsStore } from '@/backend/application/ports/gateways/SettingsStor
 import TYPES from '@/backend/ioc/types';
 import { getMainLogger } from '@/backend/infrastructure/logger';
 import RendererGateway from '@/backend/application/ports/gateways/renderer/RendererGateway';
-import LocationUtil from '@/backend/utils/LocationUtil';
 import UrlUtil from '@/common/utils/UrlUtil';
 import { inject, injectable } from 'inversify';
 import * as fs from 'fs';
@@ -14,6 +13,9 @@ import * as path from 'path';
 import { DpTaskState } from '@/backend/infrastructure/db/tables/dpTask';
 import ChatService from '@/backend/application/services/ChatService';
 import { AiFuncFormatSplitPrompt } from '@/common/types/aiRes/AiFuncFormatSplit';
+import StorageDirectoryProvider, {
+    StorageDirectoryTarget,
+} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 @injectable()
 export default class AiFuncService {
@@ -33,6 +35,9 @@ export default class AiFuncService {
 
     @inject(TYPES.SettingsStore)
     private settingsStore!: SettingsStore;
+
+    @inject(TYPES.StorageDirectoryProvider)
+    private storageDirectoryProvider!: StorageDirectoryProvider;
 
     @inject(TYPES.CloudTranscriptionService)
     private cloudTranscriptionService!: TranscriptionService;
@@ -56,6 +61,7 @@ export default class AiFuncService {
     public async transcript(params: { filePath: string }): Promise<void> {
         const { filePath } = params;
         this.logger.info('Transcription task started', { filePath });
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(filePath);
 
         this.rendererGateway.fireAndForget('transcript/batch-result', {
             updates: [{
@@ -69,7 +75,8 @@ export default class AiFuncService {
         const transcriptionEngine = await this.settingService.getCurrentTranscriptionProvider();
         const modelSize = this.settingsStore.get('whisper.modelSize') === 'large' ? 'large' : 'base';
         const modelTag = modelSize === 'large' ? 'large-v3' : 'base';
-        const modelPath = path.join(LocationUtil.staticGetStoragePath('models'), 'whisper', `ggml-${modelTag}.bin`);
+        const modelsRoot = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.MODELS);
+        const modelPath = path.join(modelsRoot, 'whisper', `ggml-${modelTag}.bin`);
         const modelDownloaded = fs.existsSync(modelPath);
 
         let transcriptionService: TranscriptionService;

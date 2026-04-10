@@ -1,34 +1,28 @@
 import React from 'react';
-import {cn} from "@/fronted/lib/utils";
-import Separator from '@/fronted/components/shared/common/Separator';
+import { cn } from "@/fronted/lib/utils";
 import TranscriptFile from './TranscriptFile';
 import TranscriptTable from '@/fronted/pages/transcript/TranscriptTable';
+import PageHeader from '@/fronted/components/shared/common/PageHeader';
+import { useTranslation as useI18nTranslation } from 'react-i18next';
 
 const Transcript = () => {
+    const { t } = useI18nTranslation('pages');
     return (
-        <div
-            className={cn(
-                'w-full h-full flex flex-col overflow-hidden select-none bg-background p-6 pt-12 gap-4 text-foreground'
-            )}
-        >
-            <div className={cn('p-4')}>
-                <h1 className={cn('text-4xl font-bold font-serif')}>
-                    Transcript
-                </h1>
-                <h2 className={cn('text-xl text-secondary-foreground mt-2 mb-4')}>
-                    Add subtitles to your videos using AI-powered speech recognition
-                </h2>
-                <Separator orientation="horizontal" className="px-0"/>
+        <div className="w-full h-full flex flex-col overflow-hidden select-none bg-background text-foreground">
+            <div className="px-6 pt-6 pb-4 border-b border-border/50">
+                <PageHeader
+                    title={t('subtitleWorkspace.title')}
+                    description={t('subtitleWorkspace.description')}
+                />
             </div>
 
-            <div className="grid grid-cols-2 gap-10 flex-1 h-0 pl-10 pb-6 pr-16"
-                 style={{
-                     gridTemplateColumns: '40% 60%',
-                     gridTemplateRows: '100%'
-                 }}
-            >
-                <TranscriptFile />
-                <TranscriptTable />
+            <div className="flex-1 min-h-0 flex gap-6 px-6 py-5 overflow-hidden">
+                <div className="w-[40%] shrink-0 min-h-0 flex flex-col">
+                    <TranscriptFile />
+                </div>
+                <div className="flex-1 min-h-0 flex flex-col">
+                    <TranscriptTable />
+                </div>
             </div>
         </div>
     );

@@ -5,7 +5,6 @@ import { cn } from '@/fronted/lib/utils';
 import { FONT_SIZE } from '@/fronted/styles/style';
 import { Sentence } from '@/common/types/SentenceC';
 import hash from 'object-hash';
-import useCopyModeController from '@/fronted/hooks/useCopyModeController';
 import { useTransLineTheme } from './translatable-theme';
 
 interface TranslatableSubtitleLineCoreParam {
@@ -21,57 +20,57 @@ interface TranslatableSubtitleLineCoreParam {
 }
 
 const TranslatableLine = ({
-                                  sentence,
-                                  show,
-                                  hoverDark,
-                                  className,
-                                  wordClassNames
-                              }: TranslatableSubtitleLineCoreParam) => {
+    sentence,
+    show,
+    hoverDark,
+    className,
+    wordClassNames,
+}: TranslatableSubtitleLineCoreParam) => {
     const theme = useTransLineTheme();
 
-    console.log('TranslatableLine render:', {
-        sentenceKey: sentence ? `${sentence.fileHash}-${sentence.index}` : null,
-        wordClassNames,
-        timestamp: Date.now()
-    });
-
     const text = sentence.text;
-    const sentenceStruct = sentence.struct;
     const fontSize = useSetting((state) =>
-        state.values.get('appearance.fontSize')
+        state.values.get('appearance.fontSize'),
     );
     const [popELe, setPopEle] = useState<string | null>(null);
     const textHash = hash(text);
-    const setCopyContent = useCopyModeController((s) => s.setCopyContent);
-    const isCopyMode = useCopyModeController((s) => s.isCopyMode);
+
+    /**
+     * 记录当前应显示释义弹层的词项。
+     */
     const handleRequestPop = (k: string) => {
         if (popELe !== k) {
             setPopEle(k);
         }
     };
-    const handleLineClick = async (e: React.MouseEvent) => {
-        if (isCopyMode) {
-            e.stopPropagation();
-            setCopyContent(text);
+
+    /**
+     * 禁止双击默认选词，同时保留单击和拖拽选区。
+     */
+    const handleLineMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+        if (event.detail > 1) {
+            event.preventDefault();
         }
     };
+
     return text === undefined ? (
         <div />
     ) : (
         <div
             className={cn(
                 theme.core.root,
+                'select-text',
                 FONT_SIZE['ms1-large'],
                 fontSize === 'fontSizeSmall' && FONT_SIZE['ms1-small'],
                 fontSize === 'fontSizeMedium' && FONT_SIZE['ms1-medium'],
                 fontSize === 'fontSizeLarge' && FONT_SIZE['ms1-large'],
-                className
+                className,
             )}
-            onClick={(e) => handleLineClick(e)}
+            onMouseDown={handleLineMouseDown}
         >
             {text.split(/(\s+|[.,!?;:"()])/).filter(Boolean).map((part, partIndex) => {
                 const partId = `${textHash}:${partIndex}`;
-                const isWord = /^[a-zA-Z]+$/.test(part);
+                const isWord = /^[a-zA-Z]+(?:-[a-zA-Z]+)*$/.test(part);
 
                 if (isWord) {
                     return (
@@ -90,15 +89,15 @@ const TranslatableLine = ({
                     );
                 }
                 return (
-                    <div
+                    <span
                         className={cn(
-                            'select-none whitespace-pre flex-shrink-0',
-                            !show && 'text-transparent'
+                            'whitespace-pre',
+                            !show && 'text-transparent',
                         )}
                         key={partId}
                     >
                         {part}
-                    </div>
+                    </span>
                 );
             })}
         </div>

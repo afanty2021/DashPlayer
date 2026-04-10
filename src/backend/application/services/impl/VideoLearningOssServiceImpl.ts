@@ -2,18 +2,20 @@ import AbstractOssServiceImpl from '@/backend/application/services/impl/Abstract
 import { ClipMeta, ClipVersion, OssBaseMeta } from '@/common/types/clipMeta';
 import { inject, injectable } from 'inversify';
 import TYPES from '@/backend/ioc/types';
-import LocationService, { LocationType } from '@/backend/application/services/LocationService';
 import { ClipOssService } from '@/backend/application/services/OssService';
 import path from 'path';
 import FfmpegServiceImpl from '@/backend/application/services/impl/FfmpegServiceImpl';
 import fs from 'fs';
 import { MetaDataSchemaV1 } from '@/common/types/clipMeta/ClipMetaDataV1';
 import { OssBaseSchema } from '@/common/types/clipMeta/base';
+import StorageDirectoryProvider, {
+    StorageDirectoryTarget,
+} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 @injectable()
 export default class VideoLearningOssServiceImpl extends AbstractOssServiceImpl<ClipMeta> implements ClipOssService {
-    @inject(TYPES.LocationService)
-    private locationService!: LocationService;
+    @inject(TYPES.StorageDirectoryProvider)
+    private storageDirectoryProvider!: StorageDirectoryProvider;
 
     @inject(TYPES.FfmpegService)
     private ffmpegService!: FfmpegServiceImpl;
@@ -25,9 +27,8 @@ export default class VideoLearningOssServiceImpl extends AbstractOssServiceImpl<
         return ClipVersion;
     }
 
-    getBasePath(): string {
-        const favoriteClipsPath = this.locationService.getDetailLibraryPath(LocationType.FAVORITE_CLIPS);
-        return path.join(favoriteClipsPath, 'word_video');
+    async getBasePath(): Promise<string> {
+        return this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.WORD_VIDEO);
     }
 
     parseMetadata(metadata: any): (OssBaseMeta & ClipMeta) | null {
@@ -52,7 +53,7 @@ export default class VideoLearningOssServiceImpl extends AbstractOssServiceImpl<
     }
 
     async putClip(key: string, sourcePath: string, metadata: ClipMeta): Promise<void> {
-        const tempFolder = this.locationService.getDetailLibraryPath(LocationType.TEMP);
+        const tempFolder = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.TEMP);
         // 生成缩略图
         const thumbnailFileName = `${key}-${this.THUMBNAIL_FILE}`;
         const length = await this.ffmpegService.duration(sourcePath);

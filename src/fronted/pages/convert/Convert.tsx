@@ -1,5 +1,4 @@
 import { cn } from '@/fronted/lib/utils';
-import Separator from '@/fronted/components/shared/common/Separator';
 import React from 'react';
 import ConvertFileSelector from '@/fronted/pages/convert/ConvertFileSelector';
 import ConvertFolderSelector from '@/fronted/pages/convert/FolderSelector';
@@ -11,12 +10,16 @@ import { DpTaskState } from '@/backend/infrastructure/db/tables/dpTask';
 import Eb from '@/fronted/components/shared/common/Eb';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
 import { backendClient } from '@/fronted/application/bootstrap/backendClient';
+import PageHeader from '@/fronted/components/shared/common/PageHeader';
+import { useTranslation as useI18nTranslation } from 'react-i18next';
+import { Wrench } from 'lucide-react';
 
 const logger = getRendererLogger('Convert');
 
-
 const api = backendClient;
+
 const Convert = () => {
+    const { t } = useI18nTranslation('pages');
     const {
         files,
         folders,
@@ -37,101 +40,121 @@ const Convert = () => {
         convertFolder: s.convertFolder
     })));
 
+    const isEmpty = files.length === 0 && folders.length === 0;
+
     return (
-        <div
-            className={cn(
-                'w-full h-full flex flex-col overflow-hidden select-none bg-background p-6 pt-12 text-foreground'
-            )}
-        >
-            <div className={cn('p-4')}>
-                <h1 className={cn('text-4xl font-bold font-serif')}>
-                    生成兼容播放版本
-                </h1>
-                <h2 className={cn('text-xl text-secondary-foreground mt-2 mb-4')}>
-                    解决无声/无法播放等问题（必要时仅转音频，并尝试提取字幕）
-                </h2>
-                <Separator orientation="horizontal" className="px-0" />
-            </div>
-            <div className={cn('flex flex-col w-full h-0 flex-1 px-10 pr-16')}>
-                <div
-                    className={cn('justify-self-end flex mb-10 flex-wrap w-full justify-center items-center gap-2 min-h-20 rounded border border-dashed p-2')}
-                >
-                    <ConvertFileSelector
-                        onSelected={async (ps) => {
-                            addFiles(ps);
-                        }}
-                    />
-                    <ConvertFolderSelector
-                        onSelected={async (fp) => {
-                            const folderList = await api.call('convert/from-folder', fp);
-                            addFolders(folderList);
-                        }}
-                    />
-                </div>
-                <div className={cn('flex flex-col gap-4 h-0 flex-1 overflow-y-auto scrollbar-none p-2')}>
-
-                    {folders.map((folder) => {
-                        const hasP = (folder.videos ?? []).some(v => taskStats.get(v) === DpTaskState.IN_PROGRESS);
-                        const allP = (folder.videos ?? []).every(v => taskStats.get(v) === DpTaskState.IN_PROGRESS);
-                        return (
-                            <Eb key={folder.folder}>
-                                <div className={cn('flex flex-col gap-4 border p-4 rounded-lg bg-muted')}>
-                                    <div className={cn('flex gap-2')}>
-                                        <h2 className={cn('text-xl font-semibold')}>
-                                            {folder?.folder}
-                                        </h2>
-                                        <Button variant={'outline'} size={'sm'} className={cn('ml-auto')}
-                                                onClick={() => {
-                                                    deleteFolder(folder.folder);
-                                                }}>
-                                            {hasP ? 'Cancel' : 'Delete'}
-                                        </Button>
-                                        <Button
-                                            disabled={allP}
-                                            size={'sm'} className={cn('')} onClick={() => {
-                                            convertFolder(folder.folder);
-                                        }}>
-                                            生成
-                                        </Button>
-                                    </div>
-
-                                    <div className={cn('grid grid-cols-2 gap-2')}>
-                                        {folder.videos.map((file) => {
-                                            return <Eb
-                                                key={file}
-                                            ><ConvertItem
-                                                buttonVariant={'small'}
-                                                className={'bg-background drop-shadow'} file={file}
-                                                onSelected={() => {
-                                                    logger.debug('File selected in convert folder', { file });
-                                                }}
-                                                onDeleted={() => {
-                                                    deleteFolder(folder.folder, file);
-                                                }}
-                                            />
-                                            </Eb>;
-                                        })}
-                                    </div>
-                                </div>
-                            </Eb>
-                        );
-                    })}
-                    {files.map((file) => {
-                        return <Eb key={file}>
-                            <ConvertItem
-                                className={'border'} file={file}
-                                onSelected={() => {
-                                    logger.debug('File selected in convert files', { file });
-                                }}
-                                onDeleted={() => {
-                                    deleteFile(file);
+        <div className="w-full h-full flex flex-col overflow-hidden select-none bg-background text-foreground">
+            <div className="px-6 pt-6 pb-4 border-b border-border/50">
+                <PageHeader
+                    title={t('formatConverter.title')}
+                    description={t('formatConverter.description')}
+                    rightSlot={
+                        <div className="flex gap-2 shrink-0">
+                            <ConvertFileSelector
+                                onSelected={async (ps) => {
+                                    addFiles(ps);
                                 }}
                             />
-                        </Eb>;
-                    })}
-                </div>
+                            <ConvertFolderSelector
+                                onSelected={async (fp) => {
+                                    const folderList = await api.call('convert/from-folder', fp);
+                                    addFolders(folderList);
+                                }}
+                            />
+                        </div>
+                    }
+                />
+            </div>
+
+            <div className={cn(
+                'flex-1 h-0 px-6 pb-6',
+                isEmpty
+                    ? 'flex items-center justify-center'
+                    : 'overflow-y-auto scrollbar-none pt-5'
+            )}>
+                {isEmpty ? (
+                    <div className="flex flex-col items-center gap-4 text-muted-foreground">
+                        <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center">
+                            <Wrench size={28} className="text-muted-foreground/60" />
+                        </div>
+                        <div className="text-center space-y-1.5">
+                            <p className="text-sm font-medium text-foreground">
+                                {t('formatConverter.empty.title')}
+                            </p>
+                            <p className="text-xs text-muted-foreground max-w-xs leading-relaxed">
+                                {t('formatConverter.empty.guide')}
+                            </p>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-4">
+                        {folders.map((folder) => {
+                            const hasP = (folder.videos ?? []).some(v => taskStats.get(v) === DpTaskState.IN_PROGRESS);
+                            const allP = (folder.videos ?? []).every(v => taskStats.get(v) === DpTaskState.IN_PROGRESS);
+                            return (
+                                <Eb key={folder.folder}>
+                                    <div className="flex flex-col gap-4 border p-4 rounded-xl bg-muted/50">
+                                        <div className="flex items-center gap-2">
+                                            <h2 className="text-sm font-medium text-foreground truncate flex-1 min-w-0">
+                                                {folder?.folder}
+                                            </h2>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => deleteFolder(folder.folder)}
+                                            >
+                                                {hasP ? t('formatConverter.cancel') : t('formatConverter.delete')}
+                                            </Button>
+                                            <Button
+                                                disabled={allP}
+                                                size="sm"
+                                                onClick={() => convertFolder(folder.folder)}
+                                            >
+                                                {t('formatConverter.fix')}
+                                            </Button>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {folder.videos.map((file) => (
+                                                <Eb key={file}>
+                                                    <ConvertItem
+                                                        buttonVariant="small"
+                                                        className="bg-background drop-shadow"
+                                                        file={file}
+                                                        onSelected={() => {
+                                                            logger.debug('File selected in convert folder', { file });
+                                                        }}
+                                                        onDeleted={() => {
+                                                            deleteFolder(folder.folder, file);
+                                                        }}
+                                                    />
+                                                </Eb>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </Eb>
+                            );
+                        })}
+
+                        {files.map((file) => (
+                            <Eb key={file}>
+                                <ConvertItem
+                                    className="border rounded-xl"
+                                    file={file}
+                                    onSelected={() => {
+                                        logger.debug('File selected in convert files', { file });
+                                    }}
+                                    onDeleted={() => {
+                                        deleteFile(file);
+                                    }}
+                                />
+                            </Eb>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );
 };
+
 export default Convert;

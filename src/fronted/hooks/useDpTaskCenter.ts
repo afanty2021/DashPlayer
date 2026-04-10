@@ -1,3 +1,6 @@
+/**
+ * 统一登记和追踪后端异步任务，让前端不同页面共享同一份任务状态。
+ */
 import {create} from 'zustand';
 import {subscribeWithSelector} from 'zustand/middleware';
 import {DpTask, DpTaskState} from '@/backend/infrastructure/db/tables/dpTask';

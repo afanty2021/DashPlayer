@@ -1,3 +1,3 @@
 # 配置快捷键
 
-Start typing here...
+![shortcut.png](shortcut.png)

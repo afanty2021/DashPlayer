@@ -1,6 +1,7 @@
 import useSWR from 'swr';
 import { cn } from '@/fronted/lib/utils';
 import React from 'react';
+import { useTranslation as useI18nTranslation } from 'react-i18next';
 import { SWR_KEY } from '@/fronted/lib/swr-util';
 import { Film } from 'lucide-react';
 import TimeUtil from '@/common/utils/TimeUtil';
@@ -31,6 +32,7 @@ const ConvertItem = ({ file, onSelected, className, buttonVariant, onDeleted }: 
     buttonVariant?: 'default' | 'small';
     onDeleted?: () => void;
 }) => {
+    const { t } = useI18nTranslation('pages');
     const { data: url } = useSWR(file ?
             [SWR_KEY.SPLIT_VIDEO_THUMBNAIL, file, 5] : null,
         async ([key, path, time]) => {
@@ -102,7 +104,7 @@ const ConvertItem = ({ file, onSelected, className, buttonVariant, onDeleted }: 
                                 className={cn(buttonVariant === 'small' && 'px-2.5 py-0.5 text-xs h-6')}
                                 size={'sm'}
                                 variant={'secondary'}>
-                                {dpTask?.status === DpTaskState.IN_PROGRESS ? 'Cancel' : 'Delete'}
+                                {dpTask?.status === DpTaskState.IN_PROGRESS ? t('formatConverter.cancel') : t('formatConverter.delete')}
                             </Button>
                             <Button
                                 onClick={() => {
@@ -111,7 +113,7 @@ const ConvertItem = ({ file, onSelected, className, buttonVariant, onDeleted }: 
                                 disabled={dpTask?.status === DpTaskState.IN_PROGRESS}
                                 className={cn(buttonVariant === 'small' && 'px-2.5 py-0.5 text-xs h-6')}
                                 size={'sm'} variant={'default'}>
-                                生成
+                                {t('formatConverter.fix')}
                             </Button>
                         </div>
                     </div>

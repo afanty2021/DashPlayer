@@ -1,3 +1,6 @@
+/**
+ * 管理系统平台信息，供前端按操作系统差异调整界面行为。
+ */
 import {create} from 'zustand';
 import {subscribeWithSelector} from 'zustand/middleware';
 import PathUtil from '@/common/utils/PathUtil';

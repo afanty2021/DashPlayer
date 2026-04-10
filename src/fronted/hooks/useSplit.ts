@@ -1,3 +1,6 @@
+/**
+ * 管理视频切分页面的文件输入、AI 格式化结果和切分任务执行状态。
+ */
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { ChapterParseResult } from '@/common/types/chapter-result';

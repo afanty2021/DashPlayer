@@ -12,8 +12,8 @@ import { Button } from '@/fronted/components/ui/button';
 import TimeUtil from '@/common/utils/TimeUtil';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
 import { cn } from '@/fronted/lib/utils';
-import { usePlayerV2State } from '@/fronted/hooks/usePlayerV2State';
-import { playerV2Actions } from '@/fronted/components/feature/player/player-v2';
+import { usePlayerState } from '@/fronted/hooks/usePlayerState';
+import { playerActions } from '@/fronted/components/feature/player/player';
 
 export interface OverlayControlBarProps {
     className?: string;
@@ -37,7 +37,7 @@ const OverlayControlBar = ({
         volume,
         playbackRate,
         muted
-    } = usePlayerV2State(
+    } = usePlayerState(
         (state) => ({
             playTime: state.internal.exactPlayTime,
             duration: state.duration,
@@ -119,24 +119,24 @@ const OverlayControlBar = ({
                             const [next] = value;
                             currentValueUpdateTime.current = Date.now();
                             onTimeChange?.(next);
-                            playerV2Actions.setAutoPause(false);
-                            playerV2Actions.setSingleRepeat(false);
+                            playerActions.setAutoPause(false);
+                            playerActions.setSingleRepeat(false);
                             setSelecting(false);
                         }}
                     />
                     <div className="flex justify-center items-end gap-4">
                         <SpeedSlider
                             speed={playbackRate}
-                            onSpeedChange={(speed) => playerV2Actions.setPlaybackRate(speed)}
+                            onSpeedChange={(speed) => playerActions.setPlaybackRate(speed)}
                             onSelectFinish={() => {
                                 setMouseOver(false);
                             }}
                         />
                         <VolumeSlider
                             muted={muted}
-                            onMutedChange={(nextMuted) => playerV2Actions.setMuted(nextMuted)}
+                            onMutedChange={(nextMuted) => playerActions.setMuted(nextMuted)}
                             volume={volume}
-                            onVolumeChange={(nextVolume) => playerV2Actions.setVolume(nextVolume)}
+                            onVolumeChange={(nextVolume) => playerActions.setVolume(nextVolume)}
                         />
                         <FullscreenToggleButton fullScreen={fullScreen} changeFullScreen={changeFullScreen} />
                     </div>

@@ -1,3 +1,6 @@
+/**
+ * 在元素首次进入视口后返回 true，适合做懒加载和延迟渲染触发。
+ */
 import { useEffect, useState } from 'react';
 import type { RefObject } from 'react';
 

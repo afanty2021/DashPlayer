@@ -1,7 +1,7 @@
 import React from 'react';
 import { cn } from '@/fronted/lib/utils';
-import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
-import { playerV2Actions } from '@/fronted/components/feature/player/player-v2';
+import { usePlayer } from '@/fronted/hooks/usePlayer';
+import { playerActions } from '@/fronted/components/feature/player/player';
 import usePlayerUi from '@/fronted/hooks/usePlayerUi';
 import { Sentence } from '@/common/types/SentenceC';
 import TranslatableLinePodcast from './TranslatableLinePodcast';
@@ -11,8 +11,8 @@ import FuncUtil from '@/common/utils/func-util';
 import useTranslation from '@/fronted/hooks/useTranslation';
 
 const PodcastViewer = ({ className }: { className?: string }) => {
-    const current: Sentence | null = usePlayerV2((s) => s.currentSentence);
-    const sentences = usePlayerV2((s) => s.sentences);
+    const current: Sentence | null = usePlayer((s) => s.currentSentence);
+    const sentences = usePlayer((s) => s.sentences);
 
     const surrounding = (() => {
         if (!current) {
@@ -41,8 +41,8 @@ const PodcastViewer = ({ className }: { className?: string }) => {
     const newTranslation = useTranslation(state => state.translations.get(translationKey)) || '';
 
     const showCn = usePlayerUi(s => s.showCn);
-    const srtTender = usePlayerV2(s => s.srtTender);
-    const clearAdjust = () => { void playerV2Actions.clearAdjust(); };
+    const srtTender = usePlayer(s => s.srtTender);
+    const clearAdjust = () => { void playerActions.clearAdjust(); };
     if (!current || !srtTender) {
         return <div className={cn('relative flex h-full w-full items-center justify-center overflow-hidden rounded-none bg-stone-100 dark:bg-neutral-900', className)} />;
     }

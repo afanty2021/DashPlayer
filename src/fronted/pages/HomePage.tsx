@@ -1,118 +1,72 @@
-/**
- * DashPlayer 首页组件
- *
- * 职责：
- * - 应用入口界面和导航中心
- * - 观看历史记录展示
- * - 文件和文件夹选择功能
- * - 应用窗口大小管理
- * - 视频格式兼容性检查
- *
- * 功能特性：
- * - 支持单个文件选择播放
- * - 支持文件夹批量导入
- * - 显示最近观看的视频记录
- * - 智能视频格式检查和转换提示
- * - 响应式布局和用户交互优化
- */
-
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-
-// UI 组件
-import TitleBar from '@/fronted/components/TitleBar/TitleBar';
+import TitleBar from '@/fronted/components/layout/TitleBar/TitleBar';
 import { cn } from '@/fronted/lib/utils';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/fronted/components/ui/card';
-import { Button } from '@/fronted/components/ui/button';
-import { ChevronsDown } from 'lucide-react';
-
-// 文件选择组件
-import ProjectListCard from '@/fronted/components/fileBowser/project-list-card';
-import ProjectListItem from '@/fronted/components/fileBowser/project-list-item';
-import FolderSelector, { FolderSelectAction } from '@/fronted/components/fileBowser/FolderSelector';
-import FileSelector, { FileAction } from '@/fronted/components/fileBowser/FileSelector';
-
-// 状态管理和工具
 import useLayout from '@/fronted/hooks/useLayout';
 import useFile from '@/fronted/hooks/useFile';
-import useConvert from '@/fronted/hooks/useConvert';
+import ProjectListCard from '@/fronted/components/feature/file-browser/project-list-card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/fronted/components/ui/card';
+import { Button } from '@/fronted/components/ui/button';
 import useSWR from 'swr';
 import { apiPath, SWR_KEY } from '@/fronted/lib/swr-util';
-import { toast } from 'sonner';
+import ProjectListItem from '@/fronted/components/feature/file-browser/project-list-item';
+import { ChevronsDown } from 'lucide-react';
+import FolderSelector, { FolderSelectAction } from '@/fronted/components/feature/file-browser/FolderSelector';
+import FileSelector, { FileAction } from '@/fronted/components/feature/file-browser/FileSelector';
+import { getRendererLogger } from '@/fronted/log/simple-logger';
+import { backendClient } from '@/fronted/application/bootstrap/backendClient';
+import { useTranslation as useI18nTranslation } from 'react-i18next';
 
-/**
- * Electron API 实例
- * 提供与主进程通信的能力
- */
-const api = window.electron;
-
-/**
- * 首页组件主体
- */
+const logger = getRendererLogger('HomePage');
 const HomePage = () => {
-    // 路由导航钩子
+    const { t } = useI18nTranslation('nav');
     const navigate = useNavigate();
-
-    // 布局状态管理
     const changeSideBar = useLayout((s) => s.changeSideBar);
 
-    /**
-     * 处理视频历史记录点击事件
-     *
-     * 功能：
-     * - 切换窗口到播放器模式
-     * - 隐藏侧边栏
-     * - 导航到播放器页面并传入视频ID
-     *
-     * @param vId - 视频ID，用于播放器页面加载对应视频
-     */
     async function handleClickById(vId: string) {
-        // 切换窗口大小到播放器模式
-        await api.call('system/window-size/change', 'player');
-        // 隐藏侧边栏以提供更佳的播放体验
+        await backendClient.call('system/window-size/change', 'player');
         changeSideBar(false);
-        // 导航到播放器页面
         navigate(`/player/${vId}`);
     }
 
-    /**
-     * 获取观看历史记录数据
-     * 使用 SWR 进行数据缓存和状态管理
-     * 自动处理加载状态、错误状态和数据更新
-     */
-    const { data: vps } = useSWR(
-        apiPath('watch-history/list'),
-        () => api.call('watch-history/list')
-    );
-
-    // 获取文件状态清除函数
+    const { data: vpsBasic } = useSWR(apiPath('watch-history/list/basic'), () => backendClient.call('watch-history/list/basic'));
+    const [vpsFull, setVpsFull] = React.useState<typeof vpsBasic>(undefined);
+    const vps = vpsFull ?? vpsBasic;
     const clear = useFile((s) => s.clear);
-
-    // 控制显示的历史记录数量
     const [num, setNum] = React.useState(4);
-
-    /**
-     * 计算要显示的额外历史记录
-     * 从第4个开始（跳过前3个卡片显示的）
-     */
+    // 从第四个开始截取num个
     const rest = vps?.slice(3, num + 3);
-
-    /**
-     * 页面初始化效果
-     *
-     * 功能：
-     * - 设置窗口为首页模式
-     * - 清除之前的文件状态
-     */
     useEffect(() => {
-        // 设置窗口大小为首页模式
-        api.call('system/window-size/change', 'home').then();
-        // 清除文件状态，确保干净的状态
+        backendClient.call('system/window-size/change', 'home').then();
         clear();
     }, [clear]);
+    useEffect(() => {
+        let cancelled = false;
+        let idleId: number | null = null;
 
-    // 调试日志：监控数据状态
-    console.log('vpsl', vps?.length, rest?.length, num);
+        const loadFullList = async () => {
+            try {
+                const full = await backendClient.call('watch-history/list');
+                if (!cancelled) {
+                    setVpsFull(full);
+                }
+            } catch (error) {
+                logger.warn('failed to load full watch history list', { error: error instanceof Error ? error.message : String(error) });
+            }
+        };
+
+        idleId = window.requestIdleCallback(() => {
+            void loadFullList();
+        }, { timeout: 1500 });
+
+        return () => {
+            cancelled = true;
+            if (idleId !== null && 'cancelIdleCallback' in window) {
+                window.cancelIdleCallback(idleId);
+            }
+        };
+    }, []);
+    logger.debug('video project statistics', { vpsCount: vps?.length, restCount: rest?.length, num });
     return (
         <div className="flex h-screen w-full flex-col text-foreground bg-muted/40">
             <header className="top-0 flex h-9 items-center">
@@ -129,21 +83,18 @@ const HomePage = () => {
                     className="flex flex-col gap-4 text-sm text-muted-foreground font-semibold md:p-10 md:pr-0"
                 >
                     <h1 className="text-3xl font-semibold -translate-x-1">DashPlayer</h1>
-                    <Link
-                        onClick={() => backendClient.call('system/window-size/change', 'player')}
-                        to="/home" className="font-semibold text-primary mt-28 text-base ">
-                        Home Page
-                    </Link>
                     <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/favorite'}
-                          className="font-semibold ">Favorite Clips</Link>
+                          className="font-semibold mt-28">{t('savedMoments')}</Link>
                     <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/transcript'}
-                          className="font-semibold ">Transcript</Link>
+                          className="font-semibold ">{t('subtitleWorkspace')}</Link>
                     <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to="/split"
-                          className="font-semibold ">Split Video</Link>
+                          className="font-semibold ">{t('sentenceSplitter')}</Link>
                     <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/convert'}
-                          className="font-semibold ">Convert</Link>
+                          className="font-semibold ">{t('formatConverter')}</Link>
                     <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/vocabulary'}
-                          className="font-semibold ">Vocabulary</Link>
+                          className="font-semibold ">{t('vocabularyStudio')}</Link>
+                    <Link onClick={() => backendClient.call('system/window-size/change', 'player')} to={'/settings'}
+                          className="font-semibold ">{t('settingsCenter')}</Link>
                 </nav>
                 <div className="flex flex-col overflow-y-auto scrollbar-none md:p-10 md:pl-0 w-0 flex-1">
                     <div

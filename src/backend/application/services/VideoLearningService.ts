@@ -1,6 +1,7 @@
 import { SimpleClipQuery } from '@/common/api/dto';
-import { VideoLearningClipPage } from '@/common/types/vo/VideoLearningClipVO';
-import {VideoLearningClipStatusVO} from "@/common/types/vo/VideoLearningClipStatusVO";
+import { ClipSrtLine } from '@/common/types/clipMeta';
+import { ClipVocabularyEntry, VideoLearningClipPage } from '@/common/types/vo/VideoLearningClipVO';
+import { GlobalVideoLearningClipQueueStatusVO, VideoLearningClipStatusVO } from '@/common/types/vo/VideoLearningClipStatusVO';
 
 /**
  * VideoLearningService
@@ -16,14 +17,6 @@ export interface VideoLearningService {
     autoClip(videoPath: string, srtKey: string, srtPath?: string): Promise<void>;
 
     /**
-     * 取消添加学习片段
-     * @param srtKey - 字幕文件键
-     * @param indexInSrt - 字幕索引
-     * @returns Promise<void>
-     */
-    cancelAddLearningClip(srtKey: string, indexInSrt: number): Promise<void>;
-
-    /**
      * 删除学习片段
      * @param key - 片段键
      * @returns Promise<void>
@@ -37,6 +30,15 @@ export interface VideoLearningService {
      * @returns Promise<VideoLearningClipPage>
      */
     search(query: SimpleClipQuery): Promise<VideoLearningClipPage>;
+
+    /**
+     * 为当前片段解析词汇高亮所需的词形映射。
+     *
+     * @param lines 当前片段字幕行。
+     * @param words 片段关联的基础词列表。
+     * @returns 词汇映射结果。
+     */
+    resolveClipVocabulary(lines: ClipSrtLine[], words: string[]): Promise<ClipVocabularyEntry[]>;
 
 
 
@@ -58,6 +60,18 @@ export interface VideoLearningService {
      * @returns Promise<{status: 'pending' | 'in_progress' | 'completed', pendingCount?: number, inProgressCount?: number, completedCount?: number}>
      */
     detectClipStatus(videoPath: string, srtKey: string, srtPath?: string): Promise<VideoLearningClipStatusVO>;
+
+    /**
+     * 获取全局自动裁切队列状态。
+     * @returns 当前全局自动裁切队列快照
+     */
+    getGlobalClipQueueStatus(): Promise<GlobalVideoLearningClipQueueStatusVO>;
+
+    /**
+     * 清空尚未完成的自动裁切队列。
+     * @returns 被清理的排队任务数量
+     */
+    cancelAllAutoClipTasks(): Promise<number>;
 
     /**
      * 词库更新后清理分析缓存

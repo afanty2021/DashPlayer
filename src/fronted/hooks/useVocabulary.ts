@@ -1,3 +1,6 @@
+/**
+ * 管理播放器生词表、词形映射和基于词形的命中判断。
+ */
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 

@@ -1,5 +1,4 @@
 import { getMainLogger } from '@/backend/infrastructure/logger';
-import nlp from 'compromise/one';
 import { SentenceBlockBySpace, SentenceBlockPart, SentenceStruct } from '@/common/types/SentenceStruct';
 import StrUtil from '@/common/utils/str-util';
 import fs from 'fs';
@@ -14,21 +13,25 @@ import { SubtitleTimestampAdjustment } from '@/backend/infrastructure/db/tables/
 import { TypeGuards } from '@/backend/utils/TypeGuards';
 import { ObjUtil } from '@/backend/utils/ObjUtil';
 import SrtUtil, {SrtLine} from "@/common/utils/SrtUtil";
-import hash from 'object-hash';
-import {MatchedWord, WordMatchService} from '@/backend/application/services/WordMatchService';
+import {WordMatchService} from '@/backend/application/services/WordMatchService';
 import RendererGateway from '@/backend/application/ports/gateways/renderer/RendererGateway';
+import StorageDirectoryProvider from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
+import {
+    CompromiseSentenceElementParser,
+    SentenceElement,
+    SentenceElementParser
+} from '@/backend/application/kernel/language/SentenceElementParser';
 
-// 生成翻译key的工具函数 - hash(附近三行)
-function generateTranslationKey(sentences: Sentence[], centerIndex: number): string {
-    const startIndex = Math.max(0, centerIndex - 1);
-    const endIndex = Math.min(sentences.length - 1, centerIndex + 1);
-
-    const contextTexts = [];
-    for (let i = startIndex; i <= endIndex; i++) {
-        contextTexts.push(sentences[i]?.text || '');
-    }
-
-    return hash(contextTexts.join('|'));
+/**
+ * 生成稳定句子翻译键。
+ * 说明：翻译结果按句保存时，仅需要稳定定位，不应混入上下文窗口语义。
+ *
+ * @param fileHash 字幕文件哈希。
+ * @param index 当前句索引。
+ * @returns 稳定句子翻译键。
+ */
+function generateTranslationKey(fileHash: string, index: number): string {
+    return `${fileHash}:${index}`;
 }
 
 function groupSentence(
@@ -58,6 +61,8 @@ const logger = getMainLogger('SubtitleServiceImpl');
 @injectable()
 export class SubtitleServiceImpl implements SubtitleService {
 
+    private readonly sentenceElementParser: SentenceElementParser = new CompromiseSentenceElementParser();
+
     @inject(TYPES.SrtTimeAdjustService)
     private srtTimeAdjustService!: SrtTimeAdjustService;
     @inject(TYPES.CacheService)
@@ -66,11 +71,14 @@ export class SubtitleServiceImpl implements SubtitleService {
     private wordMatchService!: WordMatchService;
     @inject(TYPES.RendererGateway)
     private rendererGateway!: RendererGateway;
+    @inject(TYPES.StorageDirectoryProvider)
+    private storageDirectoryProvider!: StorageDirectoryProvider;
 
     public async parseSrt(path: string): Promise<SrtSentence> {
         if (!fs.existsSync(path)) {
             throw new Error('file not exists');
         }
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(path);
         const content = await FileUtil.read(path);
         TypeGuards.assertNotNull(content, 'read file error');
         const hashKey = ObjUtil.hash(content);
@@ -99,16 +107,11 @@ export class SubtitleServiceImpl implements SubtitleService {
             textZH: line.contentZh,
             key: `${hashKey}-${index}`,
             transGroup: 0,
-            translationKey: '', // 先设为空，稍后生成
-            struct: processSentence(line.contentEn)
+            translationKey: generateTranslationKey(hashKey, index),
+            struct: this.processSentence(line.contentEn)
         }));
         groupSentence(subtitles, 20, (s, index) => {
             s.transGroup = index;
-        });
-
-        // 生成每个句子的翻译key
-        subtitles.forEach((sentence, index) => {
-            sentence.translationKey = generateTranslationKey(subtitles, index);
         });
         const res = {
             fileHash: hashKey,
@@ -185,149 +188,93 @@ export class SubtitleServiceImpl implements SubtitleService {
             };
         });
     }
-}
 
-interface TokenRes {
-    word: string;
-    implicit: string;
-    pos: {
-        start: number;
-        length: number;
-    };
-}
+    /**
+     * 将字幕原文转换为前端展示结构。
+     *
+     * @param sentence 原始句子。
+     * @returns 结构化句子。
+     */
+    private processSentence(sentence: string): SentenceStruct {
+        const elements = this.sentenceElementParser.parse(sentence);
+        const blocks: SentenceBlockBySpace[] = [];
+        let blockParts: SentenceBlockPart[] = [];
 
-function tokenizeAndProcess(text: string): TokenRes[] {
-    const doc = nlp(text);
-    const offset = doc.out('offset') as {
-        terms: {
-            text: string;
-            implicit: string | undefined;
-            offset: {
-                start: number;
-                length: number;
-            }
-        }[],
-    }[];
-    const temp: TokenRes[] = offset.map(e => e.terms ?? [])
-        .flat()
-        .map((e) => {
-            return {
-                word: e.text,
-                implicit: e.implicit ?? e.text,
-                pos: e.offset
-            };
-        });
-    const res: TokenRes[] = [];
-    for (const item of temp) {
-        if (item.pos.length > 0) {
-            res.push(item);
-            continue;
+        for (const element of elements) {
+            blockParts = this.appendElementToBlocks(element, blocks, blockParts);
         }
-        if (item.word.length === 0) {
-            continue;
-        }
-        const last = res.pop();
-        // eg: i'm
-        // 把last 按照 ' 分割, 第一个分给last, 第二个分给item
-        if (!last) {
-            continue;
-        }
-        const strings = last.word.split('\'');
-        if (strings.length === 1) {
-            continue;
-        }
-        last.word = strings[0];
-        last.pos.length = last.word.length;
-        item.word = strings[1] + item.word;
-        item.pos.start -= strings[1].length;
-        item.pos.length += strings[1].length;
-        res.push(last);
-        res.push(item);
-    }
-    return res;
-}
 
-function isWord(token: string) {
-    const regExp = /[A-Za-z]/;
-    return regExp.test(token);
-}
+        if (blockParts.length > 0) {
+            blocks.push({ blockParts });
+        }
 
-class SentenceHolder {
-    sentence: string;
-    index: number;
-
-    constructor(sentence: string) {
-        this.sentence = sentence;
-        this.index = 0;
+        return {
+            original: sentence,
+            blocks
+        };
     }
 
     /**
-     * sentence 从start开始截取length长度的字符串, 并返回. 同时更新index
+     * 将单个句子元素追加到结构化块中。
      *
-     * @param start
-     * @param length
+     * @param element 句子元素。
+     * @param blocks 目标块列表。
+     * @param blockParts 当前块内容。
+     * @returns 更新后的当前块内容。
      */
-    sub(start: number, length: number) {
-        const res = this.sentence.substring(start, start + length);
-        this.index = start + length;
-        return res;
-    }
-
-    subTo(index: number) {
-        const res = this.sentence.substring(this.index, index);
-        this.index = index;
-        return res;
-    }
-}
-
-const processSentence = (sentence: string): SentenceStruct => {
-    const tokens = tokenizeAndProcess(sentence);
-    const holder = new SentenceHolder(sentence);
-    const blocks: SentenceBlockBySpace[] = [];
-    let blockParts: SentenceBlockPart[] = [];
-    for (const token of tokens) {
-        const pw = holder.subTo(token.pos.start);
-        if (pw.length > 0) {
-            if (StrUtil.isBlank(pw)) {
-                if (blockParts.length > 0) {
-                    blocks.push({ blockParts });
-                    blockParts = [];
-                }
-            } else if (pw.includes(' ')) {
-                if (blockParts.length > 0) {
-                    blocks.push({ blockParts });
-                    blockParts = [];
-                }
-                blockParts.push({
-                    content: pw.trim(),
-                    implicit: '',
-                    isWord: false
-                });
-                blocks.push({ blockParts });
-                blockParts = [];
-            } else {
-                blockParts.push({
-                    content: pw,
-                    implicit: token.implicit,
-                    isWord: false
-                });
-            }
+    private appendElementToBlocks(
+        element: SentenceElement,
+        blocks: SentenceBlockBySpace[],
+        blockParts: SentenceBlockPart[]
+    ): SentenceBlockPart[] {
+        if (element.kind === 'word') {
+            blockParts.push({
+                content: element.text,
+                implicit: element.implicit ?? '',
+                isWord: true,
+            });
+            return blockParts;
         }
 
-        const w = holder.sub(token.pos.start, token.pos.length);
-        if (!StrUtil.isBlank(w)) {
-            blockParts.push({
-                content: w,
-                implicit: token.implicit,
-                isWord: isWord(w)
+        return this.appendTextElement(element.text, blocks, blockParts);
+    }
+
+    /**
+     * 处理非单词文本元素。
+     *
+     * 行为说明：
+     * - 空白用于切分 block。
+     * - 非空白文本直接作为普通片段落入当前 block。
+     *
+     * @param text 非单词文本。
+     * @param blocks 目标块列表。
+     * @param blockParts 当前块内容。
+     * @returns 更新后的当前块内容。
+     */
+    private appendTextElement(
+        text: string,
+        blocks: SentenceBlockBySpace[],
+        blockParts: SentenceBlockPart[]
+    ): SentenceBlockPart[] {
+        const segments = text.split(/(\s+)/u).filter((segment) => segment.length > 0);
+        let currentBlockParts = blockParts;
+
+        for (const segment of segments) {
+            if (StrUtil.isBlank(segment)) {
+                if (currentBlockParts.length > 0) {
+                    blocks.push({ blockParts: currentBlockParts });
+                    currentBlockParts = [];
+                }
+                continue;
+            }
+
+            currentBlockParts.push({
+                content: segment,
+                implicit: '',
+                isWord: false,
             });
         }
+
+        return currentBlockParts;
     }
-    if (blockParts.length > 0) {
-        blocks.push({ blockParts });
-    }
-    return {
-        original: sentence,
-        blocks: blocks
-    };
-};
+}

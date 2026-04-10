@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React from 'react';
 import { Play, Info } from 'lucide-react';
 import {
   Tooltip,
@@ -6,9 +6,8 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@/fronted/components/ui/tooltip';
-import { VideoClip } from '@/fronted/hooks/useClipTender';
+import { VideoClip } from './types';
 import UrlUtil from '@/common/utils/UrlUtil';
-import { VirtuosoGrid } from 'react-virtuoso';
 import { cn } from '@/fronted/lib/utils';
 
 type Props = {
@@ -16,10 +15,9 @@ type Props = {
   playingKey?: string;
   thumbnails?: Record<string, string>;
   onClickClip: (index: number) => void;
-  ensureThumbnails?: (indices: number[]) => void;
 };
 
-export default function ClipGrid({ clips, playingKey, thumbnails, onClickClip, ensureThumbnails }: Props) {
+export default function ClipGrid({ clips, playingKey, thumbnails, onClickClip }: Props) {
   const getThumbnailUrlSync = (clip: VideoClip): string => {
     const raw = thumbnails?.[clip.key];
     if (!raw) return '';
@@ -29,20 +27,6 @@ export default function ClipGrid({ clips, playingKey, thumbnails, onClickClip, e
     return UrlUtil.toUrl(raw);
   };
 
-  // 计算当前播放项的索引，避免每次 render 都 O(n)
-  const playingIndex = useMemo(
-    () => (playingKey ? clips.findIndex((c) => c.key === playingKey) : -1),
-    [clips, playingKey]
-  );
-
-  // 当前播放项变更时补齐缩略图
-  useEffect(() => {
-    if (playingIndex >= 0) {
-      ensureThumbnails?.([playingIndex]);
-    }
-  }, [playingIndex, ensureThumbnails]);
-
-  
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -61,50 +45,10 @@ export default function ClipGrid({ clips, playingKey, thumbnails, onClickClip, e
     );
   }
 
-  // 自定义 Grid 容器，使用 CSS Grid 实现响应式列数，保持原 Tailwind 风格
-  const ListContainer = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-    (props, ref) => (
-      <div
-        ref={ref}
-        {...props}
-        className={[
-          'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4',
-          // 让虚拟列表撑满父容器
-          'h-full',
-          props.className || ''
-        ].join(' ')}
-      />
-    )
-  );
-  ListContainer.displayName = 'ListContainer';
-
-  // 每个格子外层容器（可留空或定制 padding/margin）
-  const ItemContainer = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-    (props, ref) => <div ref={ref} {...props} />
-  );
-  ItemContainer.displayName = 'ItemContainer';
-
   return (
-    <div className="h-full">
-      <VirtuosoGrid
-        data={clips}
-        overscan={300} // 适度的超前渲染，滚动更顺滑
-        components={{ List: ListContainer, Item: ItemContainer }}
-        // 让内部 scroller 使用自定义滚动条样式
-        style={{ height: '100%' }}
-        className="scrollbar-none"
-        // 仅生成可视区域缩略图
-        rangeChanged={({ startIndex, endIndex }) => {
-          if (ensureThumbnails) {
-            const buffer = 15; // 缓冲区减少滚动抖动
-            const start = Math.max(0, startIndex - buffer);
-            const end = Math.min(clips.length - 1, endIndex + buffer);
-            const indices: number[] = [];
-            for (let i = start; i <= end; i++) indices.push(i);
-            ensureThumbnails(indices);
-          }
-        }}
-        itemContent={(idx, clip) => {
+    <div className="h-full overflow-auto scrollbar-none p-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        {clips.map((clip, idx) => {
           const title = clip.videoName.split('/').pop() || 'Unknown';
           const thumb = getThumbnailUrlSync(clip);
           const mainClip = clip.clipContent.find((c) => c.isClip) || clip.clipContent[0];
@@ -117,17 +61,17 @@ export default function ClipGrid({ clips, playingKey, thumbnails, onClickClip, e
               role="button"
               tabIndex={0}
               className={cn(
-                'border overflow-hidden rounded-2xl cursor-pointer transition-all group bg-card text-card-foreground',
+                'overflow-hidden rounded-xl cursor-pointer transition-all group bg-card text-card-foreground',
                 isPlaying
-                  ? 'border-primary ring-2 ring-primary/30 shadow-lg'
-                  : 'hover:border-primary/60 hover:shadow-md',
+                  ? 'ring-2 ring-primary/40 shadow-md'
+                  : 'hover:shadow-md',
                 clip.sourceType === 'local' && !isPlaying
-                  ? 'border-dashed border-amber-400/70 dark:border-amber-500/70'
+                  ? 'ring-1 ring-dashed ring-amber-400/70 dark:ring-amber-500/70'
                   : undefined
               )}
               onClick={() => onClickClip(idx)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                if (e.key === 'Enter') {
                   e.preventDefault();
                   onClickClip(idx);
                 }
@@ -198,13 +142,13 @@ export default function ClipGrid({ clips, playingKey, thumbnails, onClickClip, e
               </div>
 
               {/* 视频信息 */}
-              <div className="p-3 bg-card border-t border-border/60">
+              <div className="p-3 bg-card">
                 <p className="text-xs text-muted-foreground line-clamp-2">{subtitle}</p>
               </div>
             </div>
           );
-        }}
-      />
+        })}
+      </div>
     </div>
   );
 }

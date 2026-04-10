@@ -1,6 +1,12 @@
 # 配置有道云密钥
 
-您需要有道智云的密钥才能使用有道的单词翻译服务。
+> 有道云是**可选**配置。如果您已配置 OpenAI，OpenAI 也可以提供单词词典功能。
+>
+> 有道云可作为单词词典的替代方案，提供有道词典的专业释义。
+
+配置有道云后，您可以在「功能设置」页面将单词词典的引擎切换为「有道」。
+
+![dic-youdao.png](dic-youdao.png)
 
 ## 简要说明
 
@@ -27,7 +33,8 @@
 <p>点击确定完成创建。</p>
 </step>
 
-<step>打开 <a href="https://ai.youdao.com/console/#/app-overview">应用总览</a>页面，在应用列表中找到刚才创建的「应用名称」为「DashPlayer」的应用，然后就会看到「应用 ID」和「密钥/包名/Bundle ID」。将其填入 DashPlayer 即可！</step>
+<step>打开 <a href="https://ai.youdao.com/console/#/app-overview">应用总览</a>页面，在应用列表中找到刚才创建的「应用名称」为「DashPlayer」的应用，然后就会看到「应用 ID」和「密钥/包名/Bundle ID」。</step>
+<step>在 DashPlayer 设置页面，进入「服务凭据」，在有道区域填入「应用 ID」和「密钥」，点击「测试连接」验证是否配置成功。</step>
 </procedure>
 
 如有疑惑的地方，请在 [issue](https://github.com/solidSpoon/DashPlayer/issues) 反馈。

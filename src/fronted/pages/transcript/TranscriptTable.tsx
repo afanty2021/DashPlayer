@@ -1,47 +1,55 @@
 import {
     Table,
     TableBody,
-    TableCaption,
     TableHead,
     TableHeader,
     TableRow
 } from '@/fronted/components/ui/table';
-import {cn} from "@/fronted/lib/utils";
+import { cn } from "@/fronted/lib/utils";
 import TranscriptItem from '@/fronted/pages/transcript/TranscriptItem';
 import React from 'react';
 import useTranscript from '@/fronted/hooks/useTranscript';
 import { useShallow } from 'zustand/react/shallow';
+import { useTranslation as useI18nTranslation } from 'react-i18next';
+
 const TranscriptTable = () => {
-    const {files,onDelFromQueue,onTranscript} = useTranscript(useShallow(s => ({
+    const { t } = useI18nTranslation('pages');
+    const { files, onDelFromQueue, onTranscript } = useTranscript(useShallow(s => ({
         files: s.files,
         onDelFromQueue: s.onDelFromQueue,
         onTranscript: s.onTranscript
     })));
-    return(
-        <Table className={cn('h-0 w-full flex-1')}>
-            <TableCaption>A list of your recent invoices.</TableCaption>
-            <TableHeader>
-                <TableRow>
-                    <TableHead className="">视频</TableHead>
-                    <TableHead className={'w-40'}>状态</TableHead>
-                    <TableHead className={'w-36'}>操作</TableHead>
-                    {/* <TableHead className="text-right">Amount</TableHead> */}
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {files.map((f) => (
-                    <TranscriptItem
-                        key={f.file}
-                        file={f.file}
-                        onStart={() => {
-                            onTranscript(f.file);
-                        }}
-                        onDelete={() => {
-                            onDelFromQueue(f.file);
-                        }}/>
-                ))}
-            </TableBody>
-        </Table>
-    )
-}
+
+    if (files.length === 0) {
+        return (
+            <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground rounded-lg border bg-muted/20">
+                {t('subtitleWorkspace.table.empty')}
+            </div>
+        );
+    }
+
+    return (
+        <div className={cn('flex-1 overflow-auto scrollbar-thin rounded-lg border bg-muted/20')}>
+            <Table className="w-full">
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>{t('subtitleWorkspace.table.videoColumn')}</TableHead>
+                        <TableHead className="w-40">{t('subtitleWorkspace.table.statusColumn')}</TableHead>
+                        <TableHead className="w-36">{t('subtitleWorkspace.table.actionColumn')}</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {files.map((f) => (
+                        <TranscriptItem
+                            key={f.file}
+                            file={f.file}
+                            onStart={() => onTranscript(f.file)}
+                            onDelete={() => onDelFromQueue(f.file)}
+                        />
+                    ))}
+                </TableBody>
+            </Table>
+        </div>
+    );
+};
 export default TranscriptTable;

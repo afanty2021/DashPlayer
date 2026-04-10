@@ -5,10 +5,11 @@ import { codeBlock } from 'common-tags';
 import { Scissors } from 'lucide-react';
 import TooltippedButton from '@/fronted/components/shared/common/TooltippedButton';
 import useFile from '@/fronted/hooks/useFile';
-import { VideoLearningClipStatusVO } from '@/common/types/vo/VideoLearningClipStatusVO';
+import { GlobalVideoLearningClipQueueStatusVO, VideoLearningClipStatusVO } from '@/common/types/vo/VideoLearningClipStatusVO';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
 import { backendClient } from '@/fronted/application/bootstrap/backendClient';
 import { rendererApiRegistry } from '@/fronted/application/bootstrap/rendererApiRegistry';
+import { useTranslation as useI18nTranslation } from 'react-i18next';
 
 const logger = getRendererLogger('AutoClipButton');
 
@@ -18,24 +19,50 @@ interface ClipStatusState extends VideoLearningClipStatusVO {
   message?: string;
 }
 
-export default function AutoClipButton() {
+interface AutoClipButtonProps {
+  className?: string;
+}
+
+/**
+ * 生词视频自动裁切按钮。
+ *
+ * 展示规则：
+ * - 优先展示全局裁切队列状态。
+ * - 全局无裁切任务时，再展示当前视频自己的分析/待裁切状态。
+ */
+export default function AutoClipButton({ className }: AutoClipButtonProps) {
+  const { t } = useI18nTranslation('player');
   const videoPath = useFile((state) => state.videoPath);
   const srtHash = useFile((state) => state.srtHash);
   const subtitlePath = useFile((state) => state.subtitlePath);
-
-  const clipTaskKey = videoPath && srtHash ? `${videoPath}::${srtHash}` : null;
-  const clipTaskRequestedAtByKey = useFile((state) => state.clipTaskRequestedAtByKey);
-  const markClipTaskRequested = useFile((state) => state.markClipTaskRequested);
-  const clearClipTaskRequested = useFile((state) => state.clearClipTaskRequested);
-  const clipRequested = clipTaskKey ? !!clipTaskRequestedAtByKey[clipTaskKey] : false;
   const canQuery = !!(videoPath && srtHash && subtitlePath);
 
-  // 使用 SWR 获取裁切状态
-  const { data: clipStatus, mutate: mutateClipStatus } = useSWR(
+  const { data: globalQueueStatus, mutate: mutateGlobalQueueStatus } = useSWR<GlobalVideoLearningClipQueueStatusVO>(
+    'video-learning/clip-queue-status',
+    async () => {
+      return await backendClient.call('video-learning/clip-queue-status');
+    },
+    {
+      revalidateOnMount: true,
+      revalidateIfStale: false,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      refreshInterval: (data: GlobalVideoLearningClipQueueStatusVO | undefined) => (data?.hasQueuedTasks ? 1000 : 0),
+      shouldRetryOnError: true,
+      errorRetryCount: 3,
+      errorRetryInterval: 1500,
+      onError: (error) => {
+        logger.error('检测全局裁切队列状态失败:', error);
+      }
+    }
+  );
+
+  // 使用 SWR 获取当前视频裁切状态
+  const { data: clipStatus, mutate: mutateClipStatus } = useSWR<ClipStatusState>(
     videoPath && srtHash && subtitlePath
       ? ['video-learning/detect-clip-status', videoPath, srtHash, subtitlePath]
       : null,
-    async ([, videoPathParam, srtHashParam, subtitlePathParam]) => {
+    async ([, videoPathParam, srtHashParam, subtitlePathParam]: [string, string, string, string]) => {
       const result = await backendClient.call('video-learning/detect-clip-status', {
         videoPath: videoPathParam,
         srtKey: srtHashParam,
@@ -49,13 +76,7 @@ export default function AutoClipButton() {
       revalidateIfStale: false,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
-      // 更激进的兜底：分析/裁切进行中时每 1s 拉一次，避免错过 push 导致进度停住
-      refreshInterval: (data) => {
-        if (data?.status === 'analyzing' || data?.status === 'in_progress') {
-          return 1000;
-        }
-        return 0;
-      },
+      refreshInterval: (data) => (data?.status === 'analyzing' ? 1000 : 0),
       shouldRetryOnError: true,
       errorRetryCount: 3,
       errorRetryInterval: 1500,
@@ -65,13 +86,9 @@ export default function AutoClipButton() {
     }
   );
 
-  useEffect(() => {
-    if (clipStatus?.status === 'completed' && clipTaskKey) {
-      clearClipTaskRequested(clipTaskKey);
-    }
-  }, [clipStatus?.status, clipTaskKey, clearClipTaskRequested]);
-
-  // 监听来自后端的状态更新
+  /**
+   * 监听当前字幕对应的后端状态推送。
+   */
   useEffect(() => {
     const unregister = rendererApiRegistry.register(
       'video-learning/clip-status-update',
@@ -125,56 +142,121 @@ export default function AutoClipButton() {
   const pendingCount = clipStatus?.pendingCount ?? 0;
   const inProgressCount = clipStatus?.inProgressCount ?? 0;
   const analyzingProgress = clipStatus?.analyzingProgress ?? 0;
+  const globalQueuedCount = globalQueueStatus?.queuedCount ?? 0;
+  const isGlobalClipping = globalQueuedCount > 0;
 
-  const hasExistingClipTask = clipStatus?.status === 'in_progress' || clipRequested;
-  const canClip = clipStatus?.status === 'pending' && pendingCount > 0 && !hasExistingClipTask;
+  const canClip = !isGlobalClipping && clipStatus?.status === 'pending' && pendingCount > 0;
 
+  /**
+   * 根据当前优先级规则生成按钮文案。
+   */
   const getButtonText = () => {
-    if (!clipStatus?.status) return canQuery ? '检测中...' : '裁切生词视频';
+    if (isGlobalClipping) {
+      return t('autoClip.cancelInProgress', { count: globalQueuedCount });
+    }
+    if (!clipStatus?.status) return canQuery ? t('autoClip.detecting') : t('autoClip.button');
     switch (clipStatus.status) {
       case 'analyzing':
-        return `分析中 ${analyzingProgress}%`;
+        return t('autoClip.analyzing', { progress: analyzingProgress });
       case 'in_progress':
-        return `裁切中 (${inProgressCount})`;
+        return t('autoClip.inProgress', { count: inProgressCount });
       case 'pending':
-        return pendingCount > 0
-          ? (hasExistingClipTask ? `裁切中 (${inProgressCount || pendingCount})` : `裁切 ${pendingCount} 个生词片段`)
-          : '暂无可裁切片段';
+        return pendingCount > 0 ? t('autoClip.pendingCount', { count: pendingCount }) : t('autoClip.noneAvailable');
       case 'completed':
       default:
-        return '暂无可裁切片段';
+        return t('autoClip.noneAvailable');
     }
   };
 
-  const isDisabled = !canClip;
+  const isDisabled = !isGlobalClipping && !canClip;
 
   const disabledReason = (() => {
-    if (!clipStatus?.status) return canQuery ? '正在检测裁切状态' : '等待字幕分析完成';
-    if (clipStatus.status === 'analyzing') return '正在分析视频内容，请等待完成';
-    if (clipStatus.status === 'in_progress') return '正在裁切生词视频中，请等待完成';
-    if (clipRequested) return '已创建裁切任务，等待后端开始处理';
-    if (!canClip) return '暂无可裁切的生词片段';
+    if (isGlobalClipping) return t('autoClip.clickToCancel');
+    if (!clipStatus?.status) return canQuery ? t('autoClip.disabledDetecting') : t('autoClip.disabledWaitingAnalysis');
+    if (clipStatus.status === 'analyzing') return t('autoClip.disabledAnalyzing');
+    if (!canClip) return t('autoClip.noneAvailable');
     return '';
   })();
 
+  /**
+   * 乐观更新当前视频状态，避免取消队列后短暂显示旧的 in_progress。
+   */
+  const optimisticallyResetCurrentClipStatus = () => {
+    void mutateClipStatus((prev) => {
+      if (!prev || prev.status !== 'in_progress') {
+        return prev;
+      }
+
+      const nextPendingCount = (prev.pendingCount ?? 0) + (prev.inProgressCount ?? 0);
+      if (nextPendingCount <= 0) {
+        return {
+          ...prev,
+          status: 'completed',
+          pendingCount: 0,
+          inProgressCount: 0,
+        };
+      }
+
+      return {
+        ...prev,
+        status: 'pending',
+        pendingCount: nextPendingCount,
+        inProgressCount: 0,
+      };
+    }, { revalidate: false });
+  };
+
+  /**
+   * 处理按钮点击。
+   *
+   * 行为说明：
+   * - 全局裁切队列非空时，点击即清空队列。
+   * - 否则对当前视频发起自动裁切。
+   */
   const handleClick = async () => {
-    if (!videoPath || !srtHash || !subtitlePath) {
-      toast.error('请先加载视频和字幕');
+    if (isGlobalClipping) {
+      try {
+        toast(t('autoClip.cancelling'), { icon: '🛑' });
+        await backendClient.call('video-learning/cancel-auto-clip-all');
+        await mutateGlobalQueueStatus({ queuedCount: 0, hasQueuedTasks: false }, { revalidate: false });
+        optimisticallyResetCurrentClipStatus();
+        void mutateClipStatus();
+        toast.success(t('autoClip.cancelled'));
+      } catch (error) {
+        logger.error('取消全局生词视频裁切队列失败:', error);
+        void mutateGlobalQueueStatus();
+        void mutateClipStatus();
+        toast.error(t('autoClip.cancelFailed'));
+      }
       return;
     }
-    if (hasExistingClipTask) {
-      toast('已存在裁切任务，请等待完成', { icon: 'ℹ️' });
+
+    if (!videoPath || !srtHash || !subtitlePath) {
+      toast.error(t('autoClip.noVideoOrSubtitle'));
       return;
     }
     if (!canClip) {
-      toast('暂无可裁切的生词片段', { icon: 'ℹ️' });
+      toast(t('autoClip.noneAvailable'), { icon: 'ℹ️' });
       return;
     }
     try {
-      toast('开始裁切生词视频...', { icon: '✂️' });
-      if (clipTaskKey) {
-        markClipTaskRequested(clipTaskKey);
-      }
+      toast(t('autoClip.starting'), { icon: '✂️' });
+      await mutateGlobalQueueStatus(
+        (prev) => ({
+          queuedCount: (prev?.queuedCount ?? 0) + pendingCount,
+          hasQueuedTasks: true,
+        }),
+        { revalidate: false }
+      );
+      await mutateClipStatus(
+        (prev) => prev ? {
+          ...prev,
+          status: 'in_progress',
+          pendingCount: 0,
+          inProgressCount: pendingCount,
+        } : prev,
+        { revalidate: false }
+      );
       await backendClient.call('video-learning/auto-clip', {
         videoPath,
         srtKey: srtHash,
@@ -182,29 +264,32 @@ export default function AutoClipButton() {
       });
     } catch (error) {
       logger.error('生词视频裁切失败:', error);
-      if (clipTaskKey) {
-        clearClipTaskRequested(clipTaskKey);
-      }
-      toast.error('生词视频裁切失败，请重试');
+      void mutateGlobalQueueStatus();
+      void mutateClipStatus();
+      toast.error(t('autoClip.failed'));
     }
   };
 
+  const tooltipStatus = isGlobalClipping
+    ? t('autoClip.globalQueueStatus', { count: globalQueuedCount })
+    : (clipStatus?.message || t('autoClip.statusWaiting'));
+
   const tooltipMd = codeBlock`
-  #### 裁切生词视频
-  _根据生词表自动裁切包含生词的视频片段_
+  #### ${t('autoClip.tooltipTitle')}
+  _${t('autoClip.tooltipSubtitle')}_
 
-  当前状态：${clipStatus?.message || '等待检测...'}
-  ${disabledReason ? `\n**注意：${disabledReason}**` : ''}
+  ${t('autoClip.currentStatus', { status: tooltipStatus })}
+  ${disabledReason ? `\n**${t('autoClip.noticePrefix', { reason: disabledReason })}**` : ''}
 
-  此功能会：
-  1. 读取当前视频的字幕内容
-  2. 匹配生词表中的生词
-  3. 自动裁切包含生词的视频片段
-  4. 保存到视频学习库中
+  ${t('autoClip.workflowTitle')}
+  1. ${t('autoClip.workflow1')}
+  2. ${t('autoClip.workflow2')}
+  3. ${t('autoClip.workflow3')}
+  4. ${t('autoClip.workflow4')}
 
-  适用于：
-  - 快速创建生词相关的学习视频
-  - 批量生成生词学习片段
+  ${t('autoClip.suitableTitle')}
+  - ${t('autoClip.suitable1')}
+  - ${t('autoClip.suitable2')}
   `;
 
   return (
@@ -212,11 +297,12 @@ export default function AutoClipButton() {
       icon={Scissors}
       text={getButtonText()}
       disabled={isDisabled}
-      onClick={canClip ? handleClick : undefined}
+      onClick={!isDisabled ? handleClick : undefined}
       tooltipMd={tooltipMd}
       tooltipClassName="p-8 pb-6 rounded-md shadow-lg"
       variant="ghost"
       fullWidth
+      className={className}
     />
   );
 }

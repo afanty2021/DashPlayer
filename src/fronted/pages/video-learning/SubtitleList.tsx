@@ -81,12 +81,12 @@ export default function SubtitleList({
               itemRefs.current[idx] = r;
             }}
             onClick={() => onPickLine?.(idx)}
-            className={`p-2 rounded-lg text-sm cursor-pointer border transition-colors ${
+            className={`p-2 rounded-lg text-sm cursor-pointer transition-colors ${
               idx === activeIndex
-                ? 'bg-primary/10 border-primary/40'
+                ? 'bg-primary/10'
                 : line.isClip
-                  ? 'bg-secondary/10 border-secondary/40 hover:bg-secondary/20'
-                  : 'bg-muted/50 border-transparent hover:bg-muted/70'
+                  ? 'bg-secondary/5 hover:bg-secondary/10'
+                  : 'hover:bg-muted/50'
             }`}
           >
               <div className="flex items-start justify-between">

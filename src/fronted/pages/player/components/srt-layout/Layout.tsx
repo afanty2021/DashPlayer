@@ -10,9 +10,9 @@ import useLayout from '@/fronted/hooks/useLayout';
 import { useLocalStorage } from '@uidotdev/usehooks';
 import StrUtil from '@/common/utils/str-util';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
-import { usePlayerV2Bridge } from '@/fronted/hooks/usePlayerV2Bridge';
+import { usePlayerBridge } from '@/fronted/hooks/usePlayerBridge';
 import { useNavigate } from 'react-router-dom';
-import { usePlayerV2State } from '@/fronted/hooks/usePlayerV2State';
+import { usePlayerState } from '@/fronted/hooks/usePlayerState';
 import PlaybackEmptyState from './EmptyState';
 
 const logger = getRendererLogger('PlaybackLayout');
@@ -22,13 +22,13 @@ const PlaybackLayout = () => {
     const showSideBar = useLayout((state) => state.showSideBar);
     const fullScreen = useLayout((s) => s.fullScreen);
     const podcastMode = useLayout(s => s.podcastMode);
-    const hasSource = usePlayerV2State((s) => !!s.src);
+    const hasSource = usePlayerState((s) => !!s.src);
     const [sizeOa, setSizeOa] = useLocalStorage<number>('split-size-oa', 75);
     const [sizeOb, setSizeOb] = useLocalStorage<number>('split-size-ob', 25);
     const [sizeIa, setSizeIa] = useLocalStorage<number>('split-size-ia', 80);
     const [sizeIb, setSizeIb] = useLocalStorage<number>('split-size-ib', 20);
     const navigate = useNavigate();
-    const { handlePlayerReady, handleAutoPlayNext } = usePlayerV2Bridge(navigate);
+    const { handlePlayerReady, handleAutoPlayNext } = usePlayerBridge(navigate);
     const containerClass = cn(
         'w-full h-full flex flex-col border-0 border-white/90 drop-shadow-lg overflow-hidden',
         hasSubTitle && 'border-r-0',

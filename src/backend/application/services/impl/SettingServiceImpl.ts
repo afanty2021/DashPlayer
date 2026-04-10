@@ -1,9 +1,9 @@
+import fs from 'fs';
+import path from 'path';
 import { SettingKey } from '@/common/types/store_schema';
-import SystemConfigService from '@/backend/application/services/SystemConfigService';
 import { inject, injectable } from 'inversify';
 import TYPES from '@/backend/ioc/types';
 import SettingService from '@/backend/application/services/SettingService';
-import { ApiSettingVO } from '@/common/types/vo/api-setting-vo';
 import { OpenAiService } from '@/backend/application/services/OpenAiService';
 import ClientProviderService from '@/backend/application/services/ClientProviderService';
 import { TencentTranslateClient } from '@/backend/application/ports/gateways/translate/TencentTranslateClient';
@@ -12,18 +12,27 @@ import { getMainLogger } from '@/backend/infrastructure/logger';
 import RendererEvents from '@/backend/application/ports/gateways/renderer/RendererEvents';
 import { SettingsStore } from '@/backend/application/ports/gateways/SettingsStore';
 import {
-    OPENAI_SUBTITLE_CUSTOM_STYLE_KEY,
-    getSubtitleDefaultStyle
-} from '@/common/constants/openaiSubtitlePrompts';
+    OpenAiAvailableModelDetailVO,
+    OpenAiModelUsageFeature,
+    ServiceCredentialSettingDetailVO,
+    ServiceCredentialSettingSaveVO,
+} from '@/common/types/vo/service-credentials-setting-vo';
+import { EngineSelectionSettingVO } from '@/common/types/vo/engine-selection-setting-vo';
+import { getSubtitleDefaultStyle } from '@/common/constants/openaiSubtitlePrompts';
+import ModelRoutingService from '@/backend/application/services/ModelRoutingService';
+import StorageDirectoryProvider, {
+    StorageDirectoryTarget,
+} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 @injectable()
 export default class SettingServiceImpl implements SettingService {
     @inject(TYPES.RendererEvents) private rendererEvents!: RendererEvents;
-    @inject(TYPES.SystemConfigService) private systemConfigService!: SystemConfigService;
     @inject(TYPES.OpenAiService) private openAiService!: OpenAiService;
     @inject(TYPES.TencentClientProvider) private tencentProvider!: ClientProviderService<TencentTranslateClient>;
     @inject(TYPES.YouDaoClientProvider) private youDaoProvider!: ClientProviderService<YouDaoDictionaryClient>;
     @inject(TYPES.SettingsStore) private settingsStore!: SettingsStore;
+    @inject(TYPES.ModelRoutingService) private modelRoutingService!: ModelRoutingService;
+    @inject(TYPES.StorageDirectoryProvider) private storageDirectoryProvider!: StorageDirectoryProvider;
     private logger = getMainLogger('SettingServiceImpl');
 
     private async setValue(key: SettingKey, value: string): Promise<void> {
@@ -32,146 +41,381 @@ export default class SettingServiceImpl implements SettingService {
         }
     }
 
-    private async getValue(key: SettingKey): Promise<string> {
-        if (key === 'subtitleTranslation.engine') {
-            return await this.getSubtitleTranslationEngine();
-        }
-        if (key === 'dictionary.engine') {
-            return await this.getDictionaryEngine();
-        }
-        if (key === 'transcription.engine') {
-            return await this.getTranscriptionEngine();
-        }
+    private getValue(key: SettingKey): string {
         return this.settingsStore.get(key);
     }
 
-    private async getSubtitleTranslationEngine(): Promise<'openai' | 'tencent'> {
-        const stored = this.settingsStore.get('subtitleTranslation.engine');
-        return stored === 'tencent' || stored === 'openai' ? stored : 'openai';
+    /**
+     * 对枚举字符串做严格校验，不合法时立即抛错暴露数据问题。
+     */
+    private requireEnumValue<TValue extends string>(
+        value: string,
+        allowedValues: readonly TValue[],
+        fieldName: string,
+    ): TValue {
+        if (allowedValues.includes(value as TValue)) {
+            return value as TValue;
+        }
+        throw new Error(`设置项 ${fieldName} 非法: ${value}`);
     }
 
-    private async getDictionaryEngine(): Promise<'openai' | 'youdao'> {
-        const stored = this.settingsStore.get('dictionary.engine');
-        return stored === 'youdao' || stored === 'openai' ? stored : 'openai';
+    /**
+     * 对布尔字符串做严格校验，不接受隐式回退。
+     */
+    private requireBooleanString(value: string, fieldName: string): boolean {
+        if (value === 'true') {
+            return true;
+        }
+        if (value === 'false') {
+            return false;
+        }
+        throw new Error(`设置项 ${fieldName} 非法: ${value}`);
     }
 
-    private async getTranscriptionEngine(): Promise<'openai' | 'whisper'> {
-        const stored = this.settingsStore.get('transcription.engine');
-        return stored === 'whisper' || stored === 'openai' ? stored : 'openai';
+    private normalizeSubtitleEngine(value: string): 'openai' | 'tencent' | 'none' {
+        if (value === 'openai' || value === 'tencent' || value === 'none') {
+            return value;
+        }
+        return 'none';
     }
 
-    public async queryApiSettings(): Promise<ApiSettingVO> {
-        const subtitleTranslationEngine = await this.getSubtitleTranslationEngine();
-        const dictionaryEngine = await this.getDictionaryEngine();
-        const transcriptionEngine = await this.getTranscriptionEngine();
+    private normalizeDictionaryEngine(value: string): 'openai' | 'youdao' | 'none' {
+        if (value === 'openai' || value === 'youdao' || value === 'none') {
+            return value;
+        }
+        return 'none';
+    }
 
-        const settings: ApiSettingVO = {
-            openai: {
-                key: await this.getValue('apiKeys.openAi.key'),
-                endpoint: await this.getValue('apiKeys.openAi.endpoint'),
-                model: await this.getValue('model.gpt.default'),
-                enableSentenceLearning: await this.getValue('services.openai.enableSentenceLearning') === 'true',
-                enableSubtitleTranslation: subtitleTranslationEngine === 'openai',
-                subtitleTranslationMode: await this.getOpenAiSubtitleTranslationMode(),
-                subtitleCustomStyle: await this.getOpenAiSubtitleCustomStyle(),
-                enableDictionary: dictionaryEngine === 'openai',
-                enableTranscription: transcriptionEngine === 'openai',
-            },
-            tencent: {
-                secretId: await this.getValue('apiKeys.tencent.secretId'),
-                secretKey: await this.getValue('apiKeys.tencent.secretKey'),
-                enableSubtitleTranslation: subtitleTranslationEngine === 'tencent',
-            },
-            youdao: {
-                secretId: await this.getValue('apiKeys.youdao.secretId'),
-                secretKey: await this.getValue('apiKeys.youdao.secretKey'),
-                enableDictionary: dictionaryEngine === 'youdao',
-            },
-            whisper: {
-                enabled: await this.getValue('whisper.enabled') === 'true',
-                enableTranscription: transcriptionEngine === 'whisper',
-                modelSize: (await this.getValue('whisper.modelSize')) === 'large' ? 'large' : 'base',
-                enableVad: true,
-                vadModel: 'silero-v6.2.0',
-            }
+    private normalizeTranscriptionEngine(value: string): 'openai' | 'whisper' | 'none' {
+        if (value === 'openai' || value === 'whisper' || value === 'none') {
+            return value;
+        }
+        return 'none';
+    }
+
+    /**
+     * 将用户输入的模型列表文本解析为可用模型数组。
+     *
+     * 解析规则：
+     * - 同时支持逗号与换行分隔；
+     * - 会去掉首尾空白并移除空项；
+     * - 不做默认值回退，空列表直接返回空数组。
+     */
+    private parseOpenAiModels(raw: string): string[] {
+        const parsed = raw
+            .split(/[\n,]/)
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0);
+        return Array.from(new Set(parsed));
+    }
+
+    /**
+     * 读取当前功能模型占用关系。
+     */
+    private getOpenAiFeatureModelUsage(): Record<OpenAiModelUsageFeature, string> {
+        return {
+            sentenceLearning: this.getValue('models.openai.sentenceLearning'),
+            subtitleTranslation: this.getValue('models.openai.subtitleTranslation'),
+            dictionary: this.getValue('models.openai.dictionary'),
         };
-        return settings;
     }
 
-    public async updateApiSettings(settings: ApiSettingVO, service?: string): Promise<void> {
-        if (service === 'whisper') {
-            await this.setValue('whisper.enabled', settings.whisper.enabled ? 'true' : 'false');
-            const transcriptionEngine = settings.whisper.enableTranscription ? 'whisper' : 'openai';
-            await this.setValue('transcription.engine', transcriptionEngine);
-            await this.setValue('whisper.modelSize', settings.whisper.modelSize === 'large' ? 'large' : 'base');
-            await this.setValue('whisper.enableVad', 'true');
-            await this.setValue('whisper.vadModel', 'silero-v6.2.0');
-            if (transcriptionEngine === 'whisper') {
-                await this.setValue('whisper.enabled', 'true');
-            }
-            return;
+    /**
+     * 构建可用模型详情并标记占用来源。
+     */
+    private buildOpenAiModelDetails(availableModels: string[]): OpenAiAvailableModelDetailVO[] {
+        const usageByFeature = this.getOpenAiFeatureModelUsage();
+        const usageMap = new Map<string, OpenAiModelUsageFeature[]>();
+
+        for (const feature of Object.keys(usageByFeature) as OpenAiModelUsageFeature[]) {
+            const model = usageByFeature[feature];
+            const list = usageMap.get(model) ?? [];
+            list.push(feature);
+            usageMap.set(model, list);
         }
 
-        // Update OpenAI settings
+        return availableModels.map((model) => ({
+            model,
+            inUseBy: usageMap.get(model) ?? [],
+        }));
+    }
+
+    /**
+     * 校验功能模型是否在可用模型列表中。
+     */
+    private requireFeatureModelAvailable(candidate: string, availableModels: string[], fieldName: string): string {
+        if (!availableModels.includes(candidate)) {
+            throw new Error(`${fieldName} 不是可用模型: ${candidate}`);
+        }
+        return candidate;
+    }
+
+    /**
+     * 获取当前所选 Whisper 模型文件路径。
+     * @returns 模型大小与对应文件路径。
+     */
+    private async whisperModelPathForCurrentSize(): Promise<{ modelSize: 'base' | 'large'; modelPath: string }> {
+        const modelSize = this.getValue('whisper.modelSize') === 'large' ? 'large' : 'base';
+        const modelTag = modelSize === 'large' ? 'large-v3' : 'base';
+        const modelsRoot = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.MODELS);
+        const modelPath = path.join(modelsRoot, 'whisper', `ggml-${modelTag}.bin`);
+        return { modelSize, modelPath };
+    }
+
+    /**
+     * 判断当前所选 Whisper 模型是否已准备完成。
+     * @returns 模型就绪状态与路径信息。
+     */
+    private async isWhisperModelReady(): Promise<{ ready: boolean; modelSize: 'base' | 'large'; modelPath: string }> {
+        const { modelSize, modelPath } = await this.whisperModelPathForCurrentSize();
+        return {
+            ready: fs.existsSync(modelPath),
+            modelSize,
+            modelPath,
+        };
+    }
+
+    public async migrateProviderSettings(): Promise<void> {
+        return Promise.resolve();
+    }
+
+    /**
+     * 查询服务凭据设置。
+     *
+     * 返回说明：
+     * - `openai.models` 返回结构化模型列表，并附带占用信息；
+     * - 其他字段按当前存储值映射为设置页表单结构。
+     */
+    public async getServiceCredentialsDetail(): Promise<ServiceCredentialSettingDetailVO> {
+        const availableModels = this.parseOpenAiModels(this.getValue('models.openai.available'));
+        const modelDetails = this.buildOpenAiModelDetails(availableModels);
+        const whisperModelSize = this.requireEnumValue(
+            this.getValue('whisper.modelSize'),
+            ['base', 'large'] as const,
+            'whisper.modelSize',
+        );
+        const whisperVadModel = this.requireEnumValue(
+            this.getValue('whisper.vadModel'),
+            ['silero-v5.1.2', 'silero-v6.2.0'] as const,
+            'whisper.vadModel',
+        );
+        return {
+            openai: {
+                key: this.getValue('apiKeys.openAi.key'),
+                endpoint: this.getValue('apiKeys.openAi.endpoint'),
+                models: modelDetails,
+            },
+            tencent: {
+                secretId: this.getValue('apiKeys.tencent.secretId'),
+                secretKey: this.getValue('apiKeys.tencent.secretKey'),
+            },
+            youdao: {
+                secretId: this.getValue('apiKeys.youdao.secretId'),
+                secretKey: this.getValue('apiKeys.youdao.secretKey'),
+            },
+            whisper: {
+                modelSize: whisperModelSize,
+                enableVad: this.requireBooleanString(this.getValue('whisper.enableVad'), 'whisper.enableVad'),
+                vadModel: whisperVadModel,
+            },
+        };
+    }
+
+    /**
+     * 更新服务凭据设置。
+     *
+     * 行为说明：
+     * - `openai.models` 使用结构化数组保存为标准换行文本；
+     * - 当前被功能占用的模型禁止删除。
+     */
+    public async saveServiceCredentials(settings: ServiceCredentialSettingSaveVO): Promise<void> {
+        const currentAvailableModels = this.parseOpenAiModels(this.getValue('models.openai.available'));
+        const parsedModels = settings.openai.models.map((item) => item.trim());
+        if (parsedModels.some((item) => item.length === 0)) {
+            throw new Error('openai.models 包含空模型标识');
+        }
+        const dedupedModels = Array.from(new Set(parsedModels));
+        if (dedupedModels.length !== parsedModels.length) {
+            throw new Error('openai.models 包含重复模型标识');
+        }
+
+        const usageByFeature = this.getOpenAiFeatureModelUsage();
+        const removedModels = currentAvailableModels.filter((model) => !dedupedModels.includes(model));
+        for (const removedModel of removedModels) {
+            for (const feature of Object.keys(usageByFeature) as OpenAiModelUsageFeature[]) {
+                if (usageByFeature[feature] === removedModel) {
+                    throw new Error(`模型 ${removedModel} 正被功能 ${feature} 使用，不能删除`);
+                }
+            }
+        }
+
         await this.setValue('apiKeys.openAi.key', settings.openai.key);
         await this.setValue('apiKeys.openAi.endpoint', settings.openai.endpoint);
-        await this.setValue('model.gpt.default', settings.openai.model);
-        await this.setValue('services.openai.enableSentenceLearning', settings.openai.enableSentenceLearning ? 'true' : 'false');
-        const subtitleModeInput = settings.openai.subtitleTranslationMode;
-        const subtitleMode: 'zh' | 'simple_en' | 'custom' =
-            subtitleModeInput === 'simple_en' || subtitleModeInput === 'custom' ? subtitleModeInput : 'zh';
-        await this.setValue('services.openai.subtitleTranslationMode', subtitleMode);
-        const customStyleInput = settings.openai.subtitleCustomStyle ?? '';
-        const styleToStore = customStyleInput.trim().length > 0 ? customStyleInput.trim() : getSubtitleDefaultStyle('custom');
-        await this.systemConfigService.setValue(OPENAI_SUBTITLE_CUSTOM_STYLE_KEY, styleToStore);
+        await this.setValue('models.openai.available', dedupedModels.join('\n'));
 
-        // Update Tencent settings
         await this.setValue('apiKeys.tencent.secretId', settings.tencent.secretId);
         await this.setValue('apiKeys.tencent.secretKey', settings.tencent.secretKey);
 
-        // Update Youdao settings
         await this.setValue('apiKeys.youdao.secretId', settings.youdao.secretId);
         await this.setValue('apiKeys.youdao.secretKey', settings.youdao.secretKey);
 
-        const subtitleTranslationEngine: 'openai' | 'tencent' =
-            settings.tencent.enableSubtitleTranslation ? 'tencent' : 'openai';
-        await this.setValue('subtitleTranslation.engine', subtitleTranslationEngine);
+        const whisperModelSize = this.requireEnumValue(
+            settings.whisper.modelSize,
+            ['base', 'large'] as const,
+            'whisper.modelSize',
+        );
+        const whisperVadModel = this.requireEnumValue(
+            settings.whisper.vadModel,
+            ['silero-v5.1.2', 'silero-v6.2.0'] as const,
+            'whisper.vadModel',
+        );
+        await this.setValue('whisper.modelSize', whisperModelSize);
+        await this.setValue('whisper.enableVad', settings.whisper.enableVad ? 'true' : 'false');
+        await this.setValue('whisper.vadModel', whisperVadModel);
+    }
 
-        const dictionaryEngine: 'openai' | 'youdao' =
-            settings.youdao.enableDictionary ? 'youdao' : 'openai';
-        await this.setValue('dictionary.engine', dictionaryEngine);
+    /**
+     * 获取功能设置页面详情，按严格模式校验存储值。
+     */
+    public async getEngineSelectionDetail(): Promise<EngineSelectionSettingVO> {
+        const subtitleTranslationEngine = this.requireEnumValue(
+            this.getValue('providers.subtitleTranslation'),
+            ['openai', 'tencent', 'none'] as const,
+            'providers.subtitleTranslation',
+        );
+        const dictionaryEngine = this.requireEnumValue(
+            this.getValue('providers.dictionary'),
+            ['openai', 'youdao', 'none'] as const,
+            'providers.dictionary',
+        );
+        const transcriptionEngine = this.requireEnumValue(
+            this.getValue('providers.transcription'),
+            ['openai', 'whisper', 'none'] as const,
+            'providers.transcription',
+        );
+        const subtitleMode = this.requireEnumValue(
+            this.getValue('features.openai.subtitleTranslationMode'),
+            ['zh', 'simple_en', 'custom'] as const,
+            'features.openai.subtitleTranslationMode',
+        );
+        const subtitleCustomStyle = this.getValue('features.openai.subtitleCustomStyle');
 
-        // Update Whisper settings
-        await this.setValue('whisper.enabled', settings.whisper.enabled ? 'true' : 'false');
-        await this.setValue('whisper.modelSize', settings.whisper.modelSize === 'large' ? 'large' : 'base');
-        await this.setValue('whisper.enableVad', 'true');
-        await this.setValue('whisper.vadModel', 'silero-v6.2.0');
+        return {
+            openai: {
+                enableSentenceLearning: this.requireBooleanString(
+                    this.getValue('features.openai.enableSentenceLearning'),
+                    'features.openai.enableSentenceLearning',
+                ),
+                subtitleTranslationMode: subtitleMode,
+                subtitleCustomStyle,
+                featureModels: {
+                    sentenceLearning: this.getValue('models.openai.sentenceLearning'),
+                    subtitleTranslation: this.getValue('models.openai.subtitleTranslation'),
+                    dictionary: this.getValue('models.openai.dictionary'),
+                },
+            },
+            providers: {
+                subtitleTranslationEngine,
+                dictionaryEngine,
+                transcriptionEngine,
+            },
+        };
+    }
 
-        const transcriptionEngine: 'openai' | 'whisper' =
-            settings.whisper.enableTranscription ? 'whisper' : 'openai';
-        await this.setValue('transcription.engine', transcriptionEngine);
+    /**
+     * 保存功能设置页面数据，不进行静默回退。
+     */
+    public async saveEngineSelection(settings: EngineSelectionSettingVO): Promise<void> {
+        const subtitleTranslationEngine = this.requireEnumValue(
+            settings.providers.subtitleTranslationEngine,
+            ['openai', 'tencent', 'none'] as const,
+            'providers.subtitleTranslationEngine',
+        );
+        const dictionaryEngine = this.requireEnumValue(
+            settings.providers.dictionaryEngine,
+            ['openai', 'youdao', 'none'] as const,
+            'providers.dictionaryEngine',
+        );
+        const transcriptionEngine = this.requireEnumValue(
+            settings.providers.transcriptionEngine,
+            ['openai', 'whisper', 'none'] as const,
+            'providers.transcriptionEngine',
+        );
+        const availableModels = this.parseOpenAiModels(this.getValue('models.openai.available'));
+        if (availableModels.length === 0) {
+            throw new Error('models.openai.available 为空，无法保存功能模型选择');
+        }
         if (transcriptionEngine === 'whisper') {
+        const whisperStatus = await this.isWhisperModelReady();
+            if (!whisperStatus.ready) {
+                throw new Error(`Whisper 模型未下载：${whisperStatus.modelSize}。请先下载模型（${whisperStatus.modelPath}）`);
+            }
             await this.setValue('whisper.enabled', 'true');
         }
+
+        await this.setValue('providers.subtitleTranslation', subtitleTranslationEngine);
+        await this.setValue('providers.dictionary', dictionaryEngine);
+        await this.setValue('providers.transcription', transcriptionEngine);
+
+        const subtitleMode = this.requireEnumValue(
+            settings.openai.subtitleTranslationMode,
+            ['zh', 'simple_en', 'custom'] as const,
+            'openai.subtitleTranslationMode',
+        );
+
+        await this.setValue('features.openai.enableSentenceLearning', settings.openai.enableSentenceLearning ? 'true' : 'false');
+        await this.setValue('features.openai.subtitleTranslationMode', subtitleMode);
+        await this.setValue('features.openai.subtitleCustomStyle', settings.openai.subtitleCustomStyle);
+
+        await this.setValue(
+            'models.openai.sentenceLearning',
+            this.requireFeatureModelAvailable(
+                settings.openai.featureModels.sentenceLearning,
+                availableModels,
+                'openai.featureModels.sentenceLearning',
+            ),
+        );
+        await this.setValue(
+            'models.openai.subtitleTranslation',
+            this.requireFeatureModelAvailable(
+                settings.openai.featureModels.subtitleTranslation,
+                availableModels,
+                'openai.featureModels.subtitleTranslation',
+            ),
+        );
+        await this.setValue(
+            'models.openai.dictionary',
+            this.requireFeatureModelAvailable(
+                settings.openai.featureModels.dictionary,
+                availableModels,
+                'openai.featureModels.dictionary',
+            ),
+        );
     }
 
     public async getCurrentSentenceLearningProvider(): Promise<'openai' | null> {
-        const openaiEnabled = await this.getValue('services.openai.enableSentenceLearning') === 'true';
+        const openaiEnabled = this.getValue('features.openai.enableSentenceLearning') === 'true';
         return openaiEnabled ? 'openai' : null;
     }
 
     public async getCurrentTranslationProvider(): Promise<'openai' | 'tencent' | null> {
-        const engine = await this.getSubtitleTranslationEngine();
-        return engine === 'openai' || engine === 'tencent' ? engine : null;
+        const engine = this.normalizeSubtitleEngine(this.getValue('providers.subtitleTranslation'));
+        if (engine === 'openai' || engine === 'tencent') {
+            return engine;
+        }
+        return null;
     }
 
     public async getCurrentTranscriptionProvider(): Promise<'openai' | 'whisper' | null> {
-        const engine = await this.getTranscriptionEngine();
-        return engine === 'openai' || engine === 'whisper' ? engine : null;
+        const engine = this.normalizeTranscriptionEngine(this.getValue('providers.transcription'));
+        if (engine === 'openai' || engine === 'whisper') {
+            return engine;
+        }
+        return null;
     }
 
     public async getOpenAiSubtitleTranslationMode(): Promise<'zh' | 'simple_en' | 'custom'> {
-        const mode = await this.getValue('services.openai.subtitleTranslationMode');
+        const mode = this.getValue('features.openai.subtitleTranslationMode');
         if (mode === 'simple_en' || mode === 'custom') {
             return mode;
         }
@@ -179,7 +423,7 @@ export default class SettingServiceImpl implements SettingService {
     }
 
     public async getOpenAiSubtitleCustomStyle(): Promise<string> {
-        const stored = await this.systemConfigService.getValue(OPENAI_SUBTITLE_CUSTOM_STYLE_KEY);
+        const stored = this.getValue('features.openai.subtitleCustomStyle');
         if (stored && stored.trim().length > 0) {
             return stored.trim();
         }
@@ -187,31 +431,37 @@ export default class SettingServiceImpl implements SettingService {
     }
 
     public async getCurrentDictionaryProvider(): Promise<'openai' | 'youdao' | null> {
-        const engine = await this.getDictionaryEngine();
-        return engine === 'openai' || engine === 'youdao' ? engine : null;
+        const engine = this.normalizeDictionaryEngine(this.getValue('providers.dictionary'));
+        if (engine === 'openai' || engine === 'youdao') {
+            return engine;
+        }
+        return null;
     }
 
     public async testOpenAi(): Promise<{ success: boolean, message: string }> {
         try {
             this.logger.info('testing openai connection');
             const openAi = this.openAiService.getOpenAi();
-            // Test with a simple completion request
+            const routedModel = this.modelRoutingService.resolveOpenAiModel('sentenceLearning');
+            if (!routedModel) {
+                return { success: false, message: 'OpenAI 模型未配置，请先在功能设置中选择模型' };
+            }
             const completion = await openAi.chat.completions.create({
-                model: await this.getValue('model.gpt.default') || 'gpt-4o-mini',
+                model: routedModel.modelId,
                 messages: [{ role: 'user', content: 'Hello' }],
-                max_tokens: 5
+                max_tokens: 5,
             });
 
             if (completion.choices && completion.choices.length > 0) {
                 this.logger.info('openai test successful');
                 return { success: true, message: 'OpenAI 配置测试成功' };
-            } else {
-                this.logger.warn('openai returned empty response');
-                return { success: false, message: 'OpenAI 返回了空响应' };
             }
-        } catch (error: any) {
-            this.logger.error('openai test failed', { error: error.message || error });
-            return { success: false, message: `OpenAI 测试失败: ${error.message || error}` };
+            this.logger.warn('openai returned empty response');
+            return { success: false, message: 'OpenAI 返回了空响应' };
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.error('openai test failed', { error: message });
+            return { success: false, message: `OpenAI 测试失败: ${message}` };
         }
     }
 
@@ -224,18 +474,17 @@ export default class SettingServiceImpl implements SettingService {
                 return { success: false, message: '腾讯云配置不完整' };
             }
 
-            // Test with a simple translation request
             const result = await client.batchTrans(['Hello']);
             if (result && !result.isEmpty()) {
                 this.logger.info('tencent test successful');
                 return { success: true, message: '腾讯云配置测试成功' };
-            } else {
-                this.logger.warn('tencent returned empty response');
-                return { success: false, message: '腾讯云返回了空响应' };
             }
-        } catch (error: any) {
-            this.logger.error('tencent test failed', { error: error.message || error });
-            return { success: false, message: `腾讯云测试失败: ${error.message || error}` };
+            this.logger.warn('tencent returned empty response');
+            return { success: false, message: '腾讯云返回了空响应' };
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.error('tencent test failed', { error: message });
+            return { success: false, message: `腾讯云测试失败: ${message}` };
         }
     }
 
@@ -248,18 +497,17 @@ export default class SettingServiceImpl implements SettingService {
                 return { success: false, message: '有道词典配置不完整' };
             }
 
-            // Test with a simple word query
             const result = await client.translate('hello');
             if (result) {
                 this.logger.info('youdao test successful');
                 return { success: true, message: '有道词典配置测试成功' };
-            } else {
-                this.logger.warn('youdao returned empty response');
-                return { success: false, message: '有道词典返回了空响应' };
             }
-        } catch (error: any) {
-            this.logger.error('youdao test failed', { error: error.message || error });
-            return { success: false, message: `有道词典测试失败: ${error.message || error}` };
+            this.logger.warn('youdao returned empty response');
+            return { success: false, message: '有道词典返回了空响应' };
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.error('youdao test failed', { error: message });
+            return { success: false, message: `有道词典测试失败: ${message}` };
         }
     }
 }

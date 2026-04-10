@@ -1,13 +1,13 @@
 import React from 'react';
 import useFavouriteClip from '@/fronted/hooks/useFavouriteClip';
-import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
+import { usePlayer } from '@/fronted/hooks/usePlayer';
 import { TranslatableLine } from '@/fronted/components/feature/player/translatable-line';
 
 const FavouriteMainSrt = () => {
   const playInfo = useFavouriteClip((state) => state.playInfo);
   const transMap = useFavouriteClip((state) => state.transMap);
 
-  const currentSentence = usePlayerV2((state) => state.currentSentence);
+  const currentSentence = usePlayer((state) => state.currentSentence);
 
   console.log('FavouriteMainSrt render:', {
     sentenceKey: currentSentence ? `${currentSentence.fileHash}-${currentSentence.index}` : null,

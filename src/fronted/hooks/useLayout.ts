@@ -1,3 +1,6 @@
+/**
+ * 管理全局布局状态，包括侧边栏、窗口分级尺寸、全屏和播客模式。
+ */
 import {create} from 'zustand';
 import {subscribeWithSelector} from 'zustand/middleware';
 import { backendClient } from '@/fronted/application/bootstrap/backendClient';

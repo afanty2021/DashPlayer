@@ -1,27 +1,29 @@
 import { inject, injectable } from 'inversify';
 import TYPES from '@/backend/ioc/types';
 import MediaService from '@/backend/application/services/MediaService';
-import LocationService, { LocationType } from '@/backend/application/services/LocationService';
 import { ObjUtil } from '@/backend/utils/ObjUtil';
 import path from 'path';
 import FfmpegService from '@/backend/application/services/FfmpegService';
 import fs from 'fs';
+import StorageDirectoryProvider, {
+    StorageDirectoryTarget,
+} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 @injectable()
 export default class MediaServiceImpl implements MediaService {
 
-    @inject(TYPES.LocationService)
-    private locationService!: LocationService;
+    @inject(TYPES.StorageDirectoryProvider)
+    private storageDirectoryProvider!: StorageDirectoryProvider;
 
     @inject(TYPES.FfmpegService)
     private ffmpegService!: FfmpegService;
 
 
-    private generateThumbnailPath(sourceFilePath: string, timestamp: number, options?: {
+    private async generateThumbnailPath(sourceFilePath: string, timestamp: number, options?: {
         quality?: 'low' | 'medium' | 'high' | 'ultra';
         width?: number;
         format?: 'jpg' | 'png';
-    }): string {
+    }): Promise<string> {
         const { quality = 'medium', width, format = 'jpg' } = options || {};
 
         // Create a unique filename based on parameters to avoid caching issues
@@ -30,11 +32,16 @@ export default class MediaServiceImpl implements MediaService {
         const extension = format === 'png' ? '.png' : '.jpg';
 
         const thumbnailFileName = ObjUtil.hash(sourceFilePath) + '-' + timestamp + qualitySuffix + widthSuffix + extension;
-        return path.join(this.locationService.getDetailLibraryPath(LocationType.TEMP), thumbnailFileName);
+        const tempDirectory = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.TEMP);
+        return path.join(tempDirectory, thumbnailFileName);
     }
 
-    private getTempDirectoryPath() {
-        return this.locationService.getDetailLibraryPath(LocationType.TEMP);
+    /**
+     * 获取缩略图临时目录。
+     * @returns 已确保存在的临时目录。
+     */
+    private async getTempDirectoryPath(): Promise<string> {
+        return this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.TEMP);
     }
 
     async thumbnail(sourceFilePath: string, timestamp?: number, options?: {
@@ -42,13 +49,14 @@ export default class MediaServiceImpl implements MediaService {
         width?: number;
         format?: 'jpg' | 'png';
     }): Promise<string> {
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(sourceFilePath);
         if (!fs.existsSync(sourceFilePath)) {
             return '';
         }
         const duration = await this.ffmpegService.duration(sourceFilePath);
         const adjustedTimestamp = this.calculateAdjustedTimestamp(timestamp, duration);
-        const tempDirectoryPath = this.getTempDirectoryPath();
-        const thumbnailPath = this.generateThumbnailPath(sourceFilePath, adjustedTimestamp, options);
+        const tempDirectoryPath = await this.getTempDirectoryPath();
+        const thumbnailPath = await this.generateThumbnailPath(sourceFilePath, adjustedTimestamp, options);
 
         if (fs.existsSync(thumbnailPath)) {
             return thumbnailPath;
@@ -82,6 +90,7 @@ export default class MediaServiceImpl implements MediaService {
 
 
     async duration(inputFile: string): Promise<number> {
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(inputFile);
         if (!fs.existsSync(inputFile)) {
             return 0;
         }

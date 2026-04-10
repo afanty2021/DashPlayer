@@ -1,3 +1,6 @@
+/**
+ * 管理播放器内的短时提示消息，并在超时后自动清空。
+ */
 import { create } from 'zustand';
 
 type UseNotificationState = {

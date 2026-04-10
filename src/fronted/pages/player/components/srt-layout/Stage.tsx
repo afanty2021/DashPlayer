@@ -1,8 +1,8 @@
 import React, { ReactElement, useEffect, useRef, useState } from 'react';
 import { shallow } from 'zustand/shallow';
 
-import { PlayerEngineV2, playerV2Actions } from '@/fronted/components/feature/player/player-v2';
-import { usePlayerV2State } from '@/fronted/hooks/usePlayerV2State';
+import { PlayerEngine, playerActions } from '@/fronted/components/feature/player/player';
+import { usePlayerState } from '@/fronted/hooks/usePlayerState';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
 import useLayout from '@/fronted/hooks/useLayout';
 import PlaybackControlBar from './ControlBar';
@@ -24,7 +24,7 @@ export default function PlaybackStage({ className, onReady, onEnded }: PlaybackS
         playing,
         playbackRate,
         hasSource
-    } = usePlayerV2State(
+    } = usePlayerState(
         (state) => ({
             playing: state.playing,
             playbackRate: state.playbackRate,
@@ -113,7 +113,7 @@ export default function PlaybackStage({ className, onReady, onEnded }: PlaybackS
                         objectFit: 'cover'
                     }}
                 />
-                <PlayerEngineV2
+                <PlayerEngine
                     width="100%"
                     height="100%"
                     className="w-full h-full absolute top-0 left-0"
@@ -130,10 +130,10 @@ export default function PlaybackStage({ className, onReady, onEnded }: PlaybackS
                 />
                 {!fullScreen && !podcastMode && (
                     <PlaybackControlBar
-                        onTimeChange={(time) => playerV2Actions.seekTo({ time })}
+                        onTimeChange={(time) => playerActions.seekTo({ time })}
                         className="absolute bottom-0 left-0 z-20"
-                        onPause={() => playerV2Actions.pause()}
-                        onPlay={() => playerV2Actions.play()}
+                        onPause={() => playerActions.pause()}
+                        onPlay={() => playerActions.play()}
                         playing={playing}
                     />
                 )}

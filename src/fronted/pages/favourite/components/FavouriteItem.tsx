@@ -1,5 +1,5 @@
 import useFavouriteClip from '@/fronted/hooks/useFavouriteClip';
-import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
+import { usePlayer } from '@/fronted/hooks/usePlayer';
 import React, { useEffect } from 'react';
 import { cn } from '@/fronted/lib/utils';
 import UrlUtil from '@/common/utils/UrlUtil';
@@ -18,7 +18,7 @@ const FavouriteItem = ({ item }: { item: OssBaseMeta & ClipMeta }) => {
   const deleteClip = useFavouriteClip((state) => state.deleteClip);
 
   // 跟随播放器 currentSentence 做高亮
-  const currentSentence = usePlayerV2((state) => state.currentSentence);
+  const currentSentence = usePlayer((state) => state.currentSentence);
 
   const [currentLine, setCurrentLine] = React.useState<ClipSrtLine | null>(null);
   const lines: ClipSrtLine[] = item?.clip_content ?? [];

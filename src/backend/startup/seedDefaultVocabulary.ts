@@ -1,6 +1,3 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
 import { count } from 'drizzle-orm';
 
 import db from '@/backend/infrastructure/db';
@@ -9,22 +6,10 @@ import { getMainLogger } from '@/backend/infrastructure/logger';
 import TYPES from '@/backend/ioc/types';
 import container from '@/backend/ioc/inversify.config';
 import SystemConfigService from '@/backend/application/services/SystemConfigService';
-
-export type DefaultVocabularyWord = {
-    word: string;
-    stem?: string;
-    translate?: string;
-    note?: string;
-};
+import { loadDefaultVocabulary } from '@/backend/utils/defaultVocabulary';
 
 export const DEFAULT_VOCABULARY_VERSION = '1';
 const SEED_VERSION_KEY = 'syssetup.vocabularySeedVersion';
-const DEFAULT_VOCABULARY_JSONL_FILE_NAME = 'default-vocabulary.jsonl';
-
-const isDev = process.env.NODE_ENV === 'development';
-const DEFAULT_VOCABULARY_JSONL_PATH = isDev
-    ? path.resolve('resources', DEFAULT_VOCABULARY_JSONL_FILE_NAME)
-    : path.join(process.resourcesPath, 'resources', DEFAULT_VOCABULARY_JSONL_FILE_NAME);
 
 const chunk = <T>(items: T[], size: number): T[][] => {
     if (size <= 0) return [items];
@@ -33,32 +18,6 @@ const chunk = <T>(items: T[], size: number): T[][] => {
         result.push(items.slice(i, i + size));
     }
     return result;
-};
-
-const loadDefaultVocabulary = async (): Promise<DefaultVocabularyWord[]> => {
-    const content = await fs.readFile(DEFAULT_VOCABULARY_JSONL_PATH, 'utf-8');
-    const lines = content
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
-
-    const results: DefaultVocabularyWord[] = [];
-    for (const line of lines) {
-        const raw = JSON.parse(line) as unknown;
-        if (!raw || typeof raw !== 'object') continue;
-
-        const item = raw as Partial<DefaultVocabularyWord>;
-        if (!item.word || typeof item.word !== 'string') continue;
-
-        results.push({
-            word: item.word,
-            stem: item.stem,
-            translate: item.translate,
-            note: item.note,
-        });
-    }
-
-    return results;
 };
 
 export const seedDefaultVocabularyIfNeeded = async (): Promise<void> => {
@@ -104,9 +63,7 @@ export const seedDefaultVocabularyIfNeeded = async (): Promise<void> => {
     const rows = defaults
         .map((w) => ({
             word: w.word.trim(),
-            stem: (w.stem ?? w.word).trim(),
             translate: w.translate ?? null,
-            note: w.note ?? null,
         }))
         .filter((w) => w.word.length > 0);
 

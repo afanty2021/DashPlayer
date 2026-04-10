@@ -15,12 +15,18 @@ import {ClipQuery, SimpleClipQuery} from '@/common/api/dto';
 import {ClipMeta, OssBaseMeta} from '@/common/types/clipMeta';
 import WatchHistoryVO from '@/common/types/WatchHistoryVO';
 import {VideoLearningClipPage} from '@/common/types/vo/VideoLearningClipVO';
-import {VideoLearningClipStatusVO} from '@/common/types/vo/VideoLearningClipStatusVO';
+import { GlobalVideoLearningClipQueueStatusVO, VideoLearningClipStatusVO } from '@/common/types/vo/VideoLearningClipStatusVO';
 import { ChatStartParams, ChatStartResult, ChatWelcomeParams } from '@/common/types/chat';
 import { AnalysisStartParams, AnalysisStartResult } from '@/common/types/analysis';
-import {ApiSettingVO} from "@/common/types/vo/api-setting-vo";
+import {
+    ServiceCredentialSettingDetailVO,
+    ServiceCredentialSettingSaveVO,
+} from '@/common/types/vo/service-credentials-setting-vo';
+import { EngineSelectionSettingVO } from '@/common/types/vo/engine-selection-setting-vo';
+import { ShortcutSettingDetailVO, ShortcutSettingSaveVO } from '@/common/types/vo/shortcut-setting-vo';
 import { WhisperModelStatusVO, WhisperModelSize, WhisperVadModel } from '@/common/types/vo/whisper-model-vo';
 import { VideoInfo } from '@/common/types/video-info';
+import { StorageStatusVO } from '@/common/types/vo/StorageStatusVO';
 
 interface ApiDefinition {
     'eg': { params: string, return: number },
@@ -146,20 +152,22 @@ interface StorageDef {
     'storage/put': { params: { key: SettingKey, value: string }, return: void };
     'storage/get': { params: SettingKey, return: string };
     'storage/cache/size': { params: void, return: string };
+    'storage/status': { params: void, return: StorageStatusVO };
     'storage/collection/paths': { params: void, return: string[] };
 }
 
 interface SettingsDef {
-    'settings/services/get-all': { params: void, return: ApiSettingVO };
-    'settings/services/update': { params: { service: string, settings: ApiSettingVO }, return: void };
-    'settings/services/test-openai': { params: void, return: { success: boolean, message: string } };
-    'settings/services/test-tencent': { params: void, return: { success: boolean, message: string } };
-    'settings/services/test-youdao': { params: void, return: { success: boolean, message: string } };
+    'settings/service-credentials/detail': { params: void, return: ServiceCredentialSettingDetailVO };
+    'settings/service-credentials/save': { params: ServiceCredentialSettingSaveVO, return: void };
+    'settings/service-credentials/test-openai': { params: void, return: { success: boolean, message: string } };
+    'settings/service-credentials/test-tencent': { params: void, return: { success: boolean, message: string } };
+    'settings/service-credentials/test-youdao': { params: void, return: { success: boolean, message: string } };
+    'settings/engine-selection/detail': { params: void, return: EngineSelectionSettingVO };
+    'settings/engine-selection/save': { params: EngineSelectionSettingVO, return: void };
+    'settings/shortcuts/detail': { params: void, return: ShortcutSettingDetailVO };
     'settings/appearance/update': { params: { theme: string; fontSize: string }, return: void };
-    'settings/shortcuts/update': { params: Partial<Record<SettingKey, string>>, return: void };
+    'settings/shortcuts/update': { params: ShortcutSettingSaveVO, return: void };
     'settings/storage/update': { params: { path: string; collection: string }, return: void };
-    'settings/translation/update': { params: { engine: 'tencent' | 'openai'; tencentSecretId?: string; tencentSecretKey?: string }, return: void };
-    'settings/youdao/update': { params: { secretId: string; secretKey: string }, return: void };
 }
 
 interface WhisperModelDef {
@@ -217,12 +225,60 @@ interface TagDef {
     'tag/search': { params: string, return: Tag[] };
 }
 
-interface WhisperDef {
-    'whisper:test-environment': { params: { pythonPath?: string }, return: { success: boolean; error?: string } };
-    'whisper:install': { params: { pythonPath?: string }, return: { success: boolean; error?: string } };
-    'whisper:get-available-models': { params: void, return: { models: string[], current: string } };
-    'whisper:test-transcription': { params: { audioFile: string; model?: string; pythonPath?: string }, return: { success: boolean; result?: any; error?: string } };
+interface VocabularyDef {
+    'vocabulary/get-all': {
+        params: { search?: string; page?: number; pageSize?: number },
+        return: { success: boolean; data?: unknown[]; error?: string }
+    };
+    'vocabulary/export-template': {
+        params: void,
+        return: { success: boolean; data?: string; error?: string }
+    };
+    'vocabulary/import': {
+        params: { filePath: string },
+        return: { success: boolean; message?: string; error?: string }
+    };
 }
+
+interface VideoLearningDef {
+    'video-learning/detect-clip-status': {
+        params: { videoPath: string; srtKey: string; srtPath?: string },
+        return: VideoLearningClipStatusVO
+    };
+    'video-learning/clip-queue-status': {
+        params: void,
+        return: GlobalVideoLearningClipQueueStatusVO
+    };
+    'video-learning/auto-clip': {
+        params: { videoPath: string; srtKey: string; srtPath?: string },
+        return: { success: boolean }
+    };
+    'video-learning/cancel-auto-clip-all': {
+        params: void,
+        return: { success: boolean; clearedCount: number }
+    };
+    'video-learning/delete': {
+        params: { key: string },
+        return: { success: boolean }
+    };
+    'video-learning/search': {
+        params: SimpleClipQuery,
+        return: { success: boolean; data: VideoLearningClipPage }
+    };
+    'video-learning/resolve-clip-vocabulary': {
+        params: { lines: ClipMeta['clip_content']; words: string[] },
+        return: { success: boolean; data: VideoLearningClipPage['items'][number]['vocabulary'] }
+    };
+    'video-learning/sync-from-oss': {
+        params: void,
+        return: { success: boolean }
+    };
+    'video-learning/clip-counts': {
+        params: void,
+        return: { success: boolean; data: Record<string, number> }
+    };
+}
+
 
 // 使用交叉类型合并 ApiDefinitions 和 ExtraApiDefinition
 export type ApiDefinitions = ApiDefinition
@@ -242,7 +298,8 @@ export type ApiDefinitions = ApiDefinition
     & ConvertDef
     & FavoriteClipsDef
     & TagDef
-    & WhisperDef;
+    & VocabularyDef
+    & VideoLearningDef;
 
 // 更新 ApiMap 类型以使用 CombinedApiDefinitions
 export type ApiMap = {

@@ -17,7 +17,6 @@ export const SettingKeyObj = {
     'shortcut.clearAdjust': 'v',
     'shortcut.nextPlaybackRate': 'p',
     'shortcut.aiChat': 'slash',
-    'shortcut.toggleCopyMode': 'shift+y',
     'shortcut.addClip': 'shift+l',
     'shortcut.openControlPanel': 'shift+p',
     'userSelect.playbackRateStack':'',
@@ -29,19 +28,29 @@ export const SettingKeyObj = {
     'apiKeys.openAi.endpoint': '',
     'apiKeys.openAi.stream': 'on',
     'translation.engine': 'tencent',
+    'providers.subtitleTranslation': 'openai',
+    'providers.dictionary': 'openai',
+    'providers.transcription': 'whisper',
+    'features.openai.enableSentenceLearning': 'true',
+    'features.openai.subtitleTranslationMode': 'zh',
+    'features.openai.subtitleCustomStyle': '',
+    'models.openai.available': 'gpt-5.4-nano',
+    'models.openai.sentenceLearning': 'gpt-5.4-nano',
+    'models.openai.subtitleTranslation': 'gpt-5.4-nano',
+    'models.openai.dictionary': 'gpt-5.4-nano',
     'subtitleTranslation.engine': 'openai',
     'dictionary.engine': 'openai',
     'transcription.engine': 'openai',
-    'model.gpt.default': 'gpt-4o-mini',
-    // Whisper 配置
-    'whisper.provider': 'openai', // 'openai' | 'local' | 'aliyun'
-    'whisper.local.model': 'medium.en', // 'tiny.en' | 'base.en' | 'small.en' | 'medium.en' | 'large-v3' | 'large-v3-turbo'
-    'whisper.local.pythonPath': '/opt/homebrew/Caskroom/miniconda/base/envs/Whisper-env/bin/python3.11', // Python解释器路径
-    'whisper.local.device': 'auto', // 'auto' | 'cpu' | 'mps' | 'cuda'
-    'whisper.local.enableCache': true, // 是否启用模型缓存
-    'whisper.local.maxConcurrency': 2, // 最大并发转录数
+    // Service function enablement
+    'services.openai.enableSentenceLearning': 'true',
+    'services.openai.subtitleTranslationMode': 'zh',
+    'whisper.enabled': 'false',
+    'whisper.modelSize': 'base',
+    'whisper.enableVad': 'true',
+    'whisper.vadModel': 'silero-v6.2.0',
     'appearance.theme': 'light',
     'appearance.fontSize': 'fontSizeLarge',
+    'i18n.language': 'system',
     'player.autoPlayNext': 'false',
     'storage.path': '',
     'storage.collection': 'default',

@@ -1,8 +1,11 @@
+/**
+ * 管理播放器聊天面板的会话、消息流、分析结果和上下文操作。
+ */
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import UndoRedo from '@/common/utils/UndoRedo';
 import { engEqual, p } from '@/common/utils/Util';
-import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
+import { usePlayer } from '@/fronted/hooks/usePlayer';
 import CustomMessage from '@/common/types/msg/interfaces/CustomMessage';
 import HumanTopicMessage from '@/common/types/msg/HumanTopicMessage';
 import HumanNormalMessage from '@/common/types/msg/HumanNormalMessage';
@@ -61,7 +64,7 @@ export type ChatPanelState = {
 export type ChatPanelActions = {
     backward: () => void;
     forward: () => void;
-    createFromSelect: (text?: string) => void;
+    createFromSelect: (text?: string) => Promise<void>;
     createFromCurrent: () => void;
     clear: () => void;
     sent: (msg: string) => void;
@@ -136,6 +139,14 @@ const empty = (): ChatPanelState => {
     };
 };
 
+/**
+ * 在新建主题后启动分析请求。
+ * 这里显式限制为“创建新会话”场景触发，避免前进/后退恢复历史状态时重复请求。
+ */
+const startAnalysisForTopic = async () => {
+    await useChatPanel.getState().startAnalysis();
+};
+
 const useChatPanel = create(
     subscribeWithSelector<ChatPanelState & ChatPanelActions>((set, get) => ({
         ...empty(),
@@ -175,8 +186,8 @@ const useChatPanel = create(
             undoRedo.add(empty());
             const tt = new HumanTopicMessage(get().topic, text);
             const topic = { content: text };
-            const currentSentence = usePlayerV2.getState().currentSentence;
-            const sentences = usePlayerV2.getState().sentences;
+            const currentSentence = usePlayer.getState().currentSentence;
+            const sentences = usePlayer.getState().sentences;
             const subtitles = (() => {
                 if (!currentSentence) return [] as typeof sentences;
                 const idx = sentences.findIndex(s => s.index === currentSentence.index && s.fileHash === currentSentence.fileHash);
@@ -201,10 +212,13 @@ const useChatPanel = create(
                 originalTopic: text,
                 fullText: context.join(' '),
             }, topic);
+            startAnalysisForTopic().catch((error) => {
+                getRendererLogger('useChatPanel').error('failed to start analysis for selected topic', { error });
+            });
         },
         createFromCurrent: async () => {
             undoRedo.add(copy(get()));
-            const ct = usePlayerV2.getState().currentSentence;
+            const ct = usePlayer.getState().currentSentence;
             if (!ct) return;
             const tt = new HumanTopicMessage(get().topic, ct.text ?? '');
             // const subtitleAround = usePlayerController.getState().getSubtitleAround(5).map(e => e.text);
@@ -224,9 +238,9 @@ const useChatPanel = create(
                     }
                 }
             };
-            const currentSentence = usePlayerV2.getState().currentSentence;
+            const currentSentence = usePlayer.getState().currentSentence;
             if (!currentSentence) return;
-            const sentences = usePlayerV2.getState().sentences;
+            const sentences = usePlayer.getState().sentences;
             const subtitles = (() => {
                 const idx = sentences.findIndex(s => s.index === currentSentence.index && s.fileHash === currentSentence.fileHash);
                 const left = Math.max(0, idx - 5);
@@ -245,6 +259,9 @@ const useChatPanel = create(
                 originalTopic: ct.text,
                 fullText: subtitles.map(e => e.text).join(' '),
             }, topic);
+            startAnalysisForTopic().catch((error) => {
+                getRendererLogger('useChatPanel').error('failed to start analysis for current topic', { error });
+            });
         },
         clear: () => {
             undoRedo.clear();
@@ -508,8 +525,8 @@ const mergeAnalysisPartial = (
 };
 
 const getCurrentParagraphLines = (): string[] => {
-    const currentSentence = usePlayerV2.getState().currentSentence;
-    const sentences = usePlayerV2.getState().sentences;
+    const currentSentence = usePlayer.getState().currentSentence;
+    const sentences = usePlayer.getState().sentences;
     const subtitles = (() => {
         if (!currentSentence) return [] as typeof sentences;
         const idx = sentences.findIndex(s => s.index === currentSentence.index && s.fileHash === currentSentence.fileHash);
@@ -544,7 +561,7 @@ const extractTopic = (t: Topic): string => {
     if (t === 'offscreen') return 'offscreen';
     if (typeof t.content === 'string') return t.content;
     const content = t.content;
-    const subtitle = usePlayerV2.getState().sentences;
+    const subtitle = usePlayer.getState().sentences;
     const length = subtitle?.length ?? 0;
     if (length === 0 || content.start.sIndex > length || content.end.sIndex > length) {
         return 'extractTopic failed';
@@ -585,19 +602,4 @@ const scheduleWelcomeMessage = (params: ChatWelcomeParams, topic: Topic) => {
             getRendererLogger('useChatPanel').error('failed to stream welcome message', { error });
         });
 };
-
-
-let running = false;
-useChatPanel.subscribe(
-    (s) => s.topic,
-    async (topic) => {
-        if (topic === 'offscreen') {
-            return;
-        }
-        if (running) return;
-        running = true;
-        await useChatPanel.getState().startAnalysis();
-        running = false;
-    }
-);
 export default useChatPanel;

@@ -1,3 +1,6 @@
+/**
+ * 管理前端设置缓存，并把用户修改持久化到后端存储。
+ */
 import {create} from 'zustand';
 import {subscribeWithSelector} from 'zustand/middleware';
 import {SettingKey} from '@/common/types/store_schema';

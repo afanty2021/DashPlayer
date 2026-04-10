@@ -36,7 +36,8 @@ export interface Sentence {
     transGroup: number;
 
     /**
-     * 翻译key - hash(附近三行文本)
+     * 稳定句子翻译键，格式为 `fileHash:index`。
+     * 说明：仅用于按句缓存和回写结果，不承载上下文语义。
      */
     translationKey: string;
 

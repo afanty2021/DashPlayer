@@ -2,7 +2,6 @@ import SystemConfigService from '@/backend/application/services/SystemConfigServ
 import TYPES from '@/backend/ioc/types';
 import { getMainLogger } from '@/backend/infrastructure/logger';
 import RendererGateway from '@/backend/application/ports/gateways/renderer/RendererGateway';
-import LocationUtil from '@/backend/utils/LocationUtil';
 import { WHISPER_MODEL_DOWNLOADED_KEY } from '@/common/constants/systemConfigKeys';
 import { WhisperModelSize, WhisperModelStatusVO, WhisperVadModel } from '@/common/types/vo/whisper-model-vo';
 import axios from 'axios';
@@ -10,34 +9,52 @@ import { inject, injectable } from 'inversify';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
+import StorageDirectoryProvider, {
+    StorageDirectoryTarget,
+} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 @injectable()
 export class WhisperModelService {
     @inject(TYPES.RendererGateway) private rendererGateway!: RendererGateway;
     @inject(TYPES.SystemConfigService) private systemConfigService!: SystemConfigService;
+    @inject(TYPES.StorageDirectoryProvider) private storageDirectoryProvider!: StorageDirectoryProvider;
     private logger = getMainLogger('WhisperModelService');
 
-    private getModelsRoot(): string {
-        return LocationUtil.staticGetStoragePath('models');
+    /**
+     * 获取模型根目录。
+     * @returns 已确保存在的模型目录。
+     */
+    private async getModelsRoot(): Promise<string> {
+        return this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.MODELS);
     }
 
-    private getWhisperModelPath(size: WhisperModelSize): string {
-        const modelsRoot = this.getModelsRoot();
+    /**
+     * 获取 Whisper 模型文件路径。
+     * @param size 模型规格。
+     * @returns 目标模型路径。
+     */
+    private async getWhisperModelPath(size: WhisperModelSize): Promise<string> {
+        const modelsRoot = await this.getModelsRoot();
         const tag = size === 'large' ? 'large-v3' : 'base';
         return path.join(modelsRoot, 'whisper', `ggml-${tag}.bin`);
     }
 
-    private getVadModelPath(vadModel: WhisperVadModel): string {
-        const modelsRoot = this.getModelsRoot();
+    /**
+     * 获取 VAD 模型文件路径。
+     * @param vadModel VAD 模型版本。
+     * @returns 目标模型路径。
+     */
+    private async getVadModelPath(vadModel: WhisperVadModel): Promise<string> {
+        const modelsRoot = await this.getModelsRoot();
         return path.join(modelsRoot, 'whisper-vad', `ggml-${vadModel}.bin`);
     }
 
     public async getStatus(): Promise<WhisperModelStatusVO> {
-        const modelsRoot = this.getModelsRoot();
-        const basePath = this.getWhisperModelPath('base');
-        const largePath = this.getWhisperModelPath('large');
-        const v5Path = this.getVadModelPath('silero-v5.1.2');
-        const v6Path = this.getVadModelPath('silero-v6.2.0');
+        const modelsRoot = await this.getModelsRoot();
+        const basePath = await this.getWhisperModelPath('base');
+        const largePath = await this.getWhisperModelPath('large');
+        const v5Path = await this.getVadModelPath('silero-v5.1.2');
+        const v6Path = await this.getVadModelPath('silero-v6.2.0');
 
         const whisperModelDownloaded = fs.existsSync(basePath) || fs.existsSync(largePath);
         await this.systemConfigService.setValue(WHISPER_MODEL_DOWNLOADED_KEY, whisperModelDownloaded ? 'true' : 'false');
@@ -103,7 +120,7 @@ export class WhisperModelService {
     public async downloadWhisperModel(params: { modelSize: WhisperModelSize }): Promise<{ success: boolean; message: string }> {
         const size: WhisperModelSize = params.modelSize === 'large' ? 'large' : 'base';
         const tag = size === 'large' ? 'large-v3' : 'base';
-        const modelPath = this.getWhisperModelPath(size);
+        const modelPath = await this.getWhisperModelPath(size);
         const url = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${tag}.bin`;
 
         this.logger.info('download whisper model', { size, modelPath });
@@ -114,7 +131,7 @@ export class WhisperModelService {
 
     public async downloadVadModel(params: { vadModel: WhisperVadModel }): Promise<{ success: boolean; message: string }> {
         const vadModel: WhisperVadModel = params.vadModel === 'silero-v5.1.2' ? 'silero-v5.1.2' : 'silero-v6.2.0';
-        const modelPath = this.getVadModelPath(vadModel);
+        const modelPath = await this.getVadModelPath(vadModel);
         const url = `https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-${vadModel}.bin`;
 
         this.logger.info('download whisper vad model', { vadModel, modelPath });

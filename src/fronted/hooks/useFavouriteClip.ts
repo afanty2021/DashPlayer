@@ -1,3 +1,6 @@
+/**
+ * 管理收藏句子的播放上下文、收藏状态和片段翻译缓存。
+ */
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import useFile from '@/fronted/hooks/useFile';
@@ -7,7 +10,7 @@ import StrUtil from '@/common/utils/str-util';
 import TransHolder from '@/common/utils/TransHolder';
 import { ClipMeta, ClipSrtLine, OssBaseMeta } from '@/common/types/clipMeta';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
-import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
+import { usePlayer } from '@/fronted/hooks/usePlayer';
 import { backendClient } from '@/fronted/application/bootstrap/backendClient';
 
 const api = backendClient;
@@ -54,8 +57,8 @@ const useFavouriteClip = create(
       set({ currentTime });
     },
     changeCurrentLineClip: async () => {
-      // 使用 PlayerV2 的 currentSentence（替换旧的 usePlayerController）
-      const currentSentence = usePlayerV2.getState().currentSentence;
+      // 使用当前播放器聚焦句子作为收藏切换的目标。
+      const currentSentence = usePlayer.getState().currentSentence;
       const videoPath = useFile.getState().videoPath;
       const srtHash = useFile.getState().srtHash;
       if (!videoPath || !srtHash || !currentSentence) {

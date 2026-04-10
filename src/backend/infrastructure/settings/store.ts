@@ -1,27 +1,36 @@
 import Store from 'electron-store';
 import {SettingKey, SettingKeyObj} from '@/common/types/store_schema';
 import StrUtil from '@/common/utils/str-util';
+import { getEnvironmentConfigName } from '@/backend/utils/runtimeEnv';
 
 
-const store = new Store();
+const buildStore = (name: string): Store<Record<string, unknown>> => {
+    return new Store({ name });
+};
 
+const store = buildStore(getEnvironmentConfigName('config'));
+
+/**
+ * 判断当前设置项是否属于可被用户清空的快捷键配置。
+ */
+const isShortcutSettingKey = (key: SettingKey): boolean => key.startsWith('shortcut.');
+
+/**
+ * 写入设置值。
+ *
+ * 行为说明：
+ * - 快捷键配置允许写入空字符串，表示显式取消绑定。
+ * - 非快捷键配置仍沿用历史行为：空值回落到默认值。
+ */
 export const storeSet = (key: SettingKey, value: string | undefined | null): boolean => {
-    // 将值转换为字符串，避免布尔值导致的 trim 错误
-    let stringValue = value;
-    if (typeof value === 'boolean') {
-        stringValue = value.toString();
-    } else if (value === null || value === undefined) {
-        stringValue = '';
-    }
-
-    if (StrUtil.isBlank(stringValue)) {
-        stringValue = SettingKeyObj[key];
+    if (StrUtil.isBlank(value) && !isShortcutSettingKey(key)) {
+        value = SettingKeyObj[key];
     }
     const oldValue = store.get(key, SettingKeyObj[key]);
-    if (oldValue === stringValue) {
+    if (oldValue === value) {
        return false;
     }
-    store.set(key, stringValue);
+    store.set(key, value);
     return true;
 };
 

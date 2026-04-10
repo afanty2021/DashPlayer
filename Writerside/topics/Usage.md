@@ -8,6 +8,8 @@ DashPlayer 支持常见的视频格式，以及 srt 字幕格式。
 - 使用 <control>Open Folder</control> 按钮打开视频文件夹，DashPlayer 会自动查找视频和字幕文件
 - 进入播放界面后，点击右下角的圆形按钮可以显示控制台
 
+![start-page.png](start-page.png)
+
 ## 如何控制播放
 
 ### 通过鼠标/键盘快捷键控制播放
@@ -29,4 +31,4 @@ DashPlayer 默认快捷键如下
 
 具体快捷键可在设置界面查看
 
-<img width="912" alt="image" src="https://github.com/solidSpoon/DashPlayer/assets/39454841/2b869c73-000d-45cb-9914-2bf2e7147e8f"/>
+![shortcut.png](shortcut.png)

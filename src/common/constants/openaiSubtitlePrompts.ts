@@ -7,6 +7,11 @@ type PromptContext = {
     style?: string;
 };
 
+type BatchPromptItem = {
+    key: string;
+    text: string;
+};
+
 export const OPENAI_SUBTITLE_BASE_PROMPT = `You are a professional subtitle assistant.
 
 Follow these style guidelines closely:
@@ -39,6 +44,25 @@ Only output the processed sentence, without quotes or extra commentary.
 
 Current sentence:
 "{{current}}"`;
+
+export const OPENAI_SUBTITLE_BATCH_PROMPT = `You are a professional subtitle assistant.
+
+Follow these style guidelines closely:
+{{style}}
+
+You will receive a short subtitle window in JSON format.
+Use the surrounding lines to keep tone, intent, and terminology aligned.
+
+Rules:
+1. Return one translation per input item.
+2. Keep every item mapped to the same key.
+3. Do not merge lines or omit lines.
+4. Do not add explanations.
+5. Respond with JSON only in the following format:
+{"items":[{"key":"...","translation":"..."}]}
+
+Subtitle window:
+{{items}}`;
 
 export const OPENAI_SUBTITLE_DEFAULT_STYLES: Record<TranslationMode, string> = {
     zh: '将原句自然、口语化地翻译成简体中文，语序可适度调整以保证流畅易读，保留原句语气与情感。',
@@ -108,4 +132,17 @@ export const fillSubtitlePrompt = (
         .replace(/{{\s*prev\s*}}/gi, formatContextValue(context.prev))
         .replace(/{{\s*next\s*}}/gi, formatContextValue(context.next))
         .replace(/{{\s*style\s*}}/gi, resolvedStyle);
+};
+
+/**
+ * 生成字幕窗口批量翻译提示词。
+ *
+ * @param items 当前窗口内的字幕条目。
+ * @param style 风格约束文本。
+ * @returns 可直接发送给 OpenAI 的批量翻译 prompt。
+ */
+export const buildSubtitleBatchPrompt = (items: BatchPromptItem[], style: string): string => {
+    return OPENAI_SUBTITLE_BATCH_PROMPT
+        .replace(/{{\s*style\s*}}/gi, formatStyleValue(style, OPENAI_SUBTITLE_DEFAULT_STYLES.custom))
+        .replace(/{{\s*items\s*}}/gi, JSON.stringify(items, null, 2));
 };

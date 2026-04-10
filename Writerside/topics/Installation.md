@@ -4,7 +4,18 @@ DashPlayer 目前并没有进行应用签名，因此在安装过程中可能会
 
 ## Windows
 
-1. 在 [Latest Release](https://github.com/solidSpoon/DashPlayer/releases/latest) 页面下载以 `.exe` 结尾的安装包
+Windows 提供两种安装包格式，请根据需求选择其一：
+
+| 格式 | 特点 |
+|------|------|
+| `.exe`（推荐） | 双击即装，无需管理员权限，安装路径固定 |
+| `.msi` | 有安装向导，**可以自定义安装路径**，需要管理员权限 |
+
+> **注意：** 两种格式不能混用。如果您之前安装了其中一种，切换到另一种之前请先完全卸载旧版本，否则可能出现多个版本并存的问题。
+
+### 安装步骤
+
+1. 在 [Latest Release](https://github.com/solidSpoon/DashPlayer/releases/latest) 页面下载所需格式的安装包
 2. 下载完成后双击安装包进行安装
 3. 如果提示不安全，可以点击 `更多信息` -> `仍要运行` 进行安装
 4. 开始使用吧！
@@ -19,7 +30,9 @@ DashPlayer 目前并没有进行应用签名，因此在安装过程中可能会
 
 ### 故障排除
 
-#### "DashPlayer" can’t be opened because the developer cannot be verified.
+由于 DashPlayer 目前没有 Apple 开发者签名，macOS 会将其识别为未验证的应用，可能会阻止打开或提示文件已损坏。这是正常现象，按照以下方法操作即可正常使用。
+
+#### "DashPlayer" can't be opened because the developer cannot be verified.
 
 <p align="center">
   <img width="300" alt="image" src="https://user-images.githubusercontent.com/39454841/226151784-b6ed3e65-2c0a-4ad0-93eb-57d45108e1ba.png"/>
@@ -31,7 +44,7 @@ DashPlayer 目前并没有进行应用签名，因此在安装过程中可能会
 | ![img](https://user-images.githubusercontent.com/39454841/226151875-03f79da9-45fc-4c0d-9d12-8cc9666ff904.png){width="200"} | ![img](https://user-images.githubusercontent.com/39454841/226151917-6b59f228-2bb9-4f12-9584-32bca9699d8e.png){width="200"} |
 |----------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
 
-#### XYZ is damaged and can’t be opened. You should move it to the Trash
+#### XYZ is damaged and can't be opened. You should move it to the Trash
 
 XYZ 已损坏，无法打开。您应该将其移动到垃圾桶中。
 

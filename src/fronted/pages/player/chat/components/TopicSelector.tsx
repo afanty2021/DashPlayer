@@ -1,4 +1,4 @@
-import { usePlayerV2 } from '@/fronted/hooks/usePlayerV2';
+import { usePlayer } from '@/fronted/hooks/usePlayer';
 import { cn } from '@/fronted/lib/utils';
 import { Card, CardContent } from '@/fronted/components/ui/card';
 import { useEffect, useRef, useState } from 'react';
@@ -8,8 +8,8 @@ const TopicSelector = ({ className }: {
     className: string,
 }) => {
 
-    const currentSentence = usePlayerV2(state => state.currentSentence);
-    const sentences = usePlayerV2(state => state.sentences);
+    const currentSentence = usePlayer(state => state.currentSentence);
+    const sentences = usePlayer(state => state.sentences);
     const subtitles = (() => {
         if (!currentSentence) return [] as typeof sentences;
         const idx = sentences.findIndex(s => s.index === currentSentence.index && s.fileHash === currentSentence.fileHash);

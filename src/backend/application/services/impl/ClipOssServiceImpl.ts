@@ -2,18 +2,20 @@ import AbstractOssServiceImpl from '@/backend/application/services/impl/Abstract
 import { ClipMeta, ClipVersion, OssBaseMeta } from '@/common/types/clipMeta';
 import { inject, injectable } from 'inversify';
 import TYPES from '@/backend/ioc/types';
-import LocationService, { LocationType } from '@/backend/application/services/LocationService';
 import { ClipOssService } from '@/backend/application/services/OssService';
 import path from 'path';
 import FfmpegServiceImpl from '@/backend/application/services/impl/FfmpegServiceImpl';
 import fs from 'fs';
 import { MetaDataSchemaV1 } from '@/common/types/clipMeta/ClipMetaDataV1';
 import { OssBaseSchema } from '@/common/types/clipMeta/base';
+import StorageDirectoryProvider, {
+    StorageDirectoryTarget,
+} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 @injectable()
 export default class ClipOssServiceImpl extends AbstractOssServiceImpl<ClipMeta> implements ClipOssService {
-    @inject(TYPES.LocationService)
-    private locationService!: LocationService;
+    @inject(TYPES.StorageDirectoryProvider)
+    private storageDirectoryProvider!: StorageDirectoryProvider;
 
     @inject(TYPES.FfmpegService)
     private ffmpegService!: FfmpegServiceImpl;
@@ -25,11 +27,19 @@ export default class ClipOssServiceImpl extends AbstractOssServiceImpl<ClipMeta>
         return ClipVersion;
     }
 
-    getBasePath(): string {
-        return this.locationService.getBaseClipPath();
+    async getBasePath(): Promise<string> {
+        return this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.FAVORITE_CLIPS_COLLECTION);
     }
+
+    /**
+     * 解析收藏片段元数据。
+     * @param metadata 原始元数据。
+     * @returns 校验通过后的结构化元数据。
+     */
     parseMetadata(metadata: unknown): (OssBaseMeta & ClipMeta) | null {
-        const version = metadata?.version;
+        const version = typeof metadata === 'object' && metadata !== null
+            ? (metadata as { version?: unknown }).version
+            : undefined;
         if (!version) {
             return null;
         }
@@ -42,15 +52,23 @@ export default class ClipOssServiceImpl extends AbstractOssServiceImpl<ClipMeta>
         return null;
     }
 
+    /**
+     * 校验待写入的新元数据是否合法。
+     * @param metadata 候选元数据。
+     * @returns 是否满足当前版本约束。
+     */
     verifyNewMetadata(metadata: unknown): boolean {
-        if (this.getVersion() !== metadata?.version) {
+        const version = typeof metadata === 'object' && metadata !== null
+            ? (metadata as { version?: unknown }).version
+            : undefined;
+        if (this.getVersion() !== version) {
             return false;
         }
         return MetaDataSchemaV1.merge(OssBaseSchema).safeParse(metadata).success;
     }
 
     async putClip(key: string, sourcePath: string, metadata: ClipMeta): Promise<void> {
-        const tempFolder = this.locationService.getDetailLibraryPath(LocationType.TEMP);
+        const tempFolder = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.TEMP);
         // 生成缩略图
         const thumbnailFileName = `${key}-${this.THUMBNAIL_FILE}`;
         const length = await this.ffmpegService.duration(sourcePath);

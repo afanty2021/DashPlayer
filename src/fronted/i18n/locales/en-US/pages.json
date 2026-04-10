@@ -1,0 +1,101 @@
+{
+    "savedMoments": {
+        "title": "Saved Moments",
+        "description": "Manage and revisit the clips you marked as important",
+        "recover": {
+            "loading": "Restoring Saved Moments from local files...",
+            "success": "Saved Moments restored successfully",
+            "error": "Restore failed. Please try again later.",
+            "button": "Restore Saved Moments from local"
+        },
+        "empty": {
+            "title": "No Saved Moments yet",
+            "guideAdd": "Use \"Add favorite clip\" in the player to save the current sentence, then manage and replay it here.",
+            "guideRecover": "If local files already exist but this list is empty, use the button below to rebuild the index from local storage."
+        }
+    },
+    "vocabularyStudio": {
+        "title": "Vocabulary Studio",
+        "description": "Focus on vocabulary clips and quickly revisit key contexts",
+        "recover": {
+            "loading": "Restoring Vocabulary Studio clips from local files...",
+            "success": "Vocabulary Studio clips restored successfully",
+            "error": "Restore failed. Please try again later.",
+            "button": "Restore Vocabulary Studio clips from local"
+        },
+        "empty": {
+            "title": "No Vocabulary Studio clips yet",
+            "guideAdd": "Use vocabulary clipping in the player to generate study clips that contain your target words, then review them here.",
+            "guideRecover": "If word_video files already exist but this page is empty, use the button below to rebuild records from local storage."
+        },
+        "pagination": {
+            "summary": "Showing clips {{start}}-{{end}} of {{total}}",
+            "empty": "No clips yet"
+        }
+    },
+    "formatConverter": {
+        "title": "Fix Playback Issues",
+        "description": "Convert videos to a compatible format and fix no audio, stuttering, or unplayable issues",
+        "empty": {
+            "title": "No videos to fix yet",
+            "guide": "Click the buttons above to add video files or a folder for batch processing"
+        },
+        "fix": "Fix",
+        "cancel": "Cancel",
+        "delete": "Delete"
+    },
+    "sentenceSplitter": {
+        "title": "Split Long Videos",
+        "description": "Split long videos and subtitles into smaller segments by timestamps",
+        "inputLabel": "Split Configuration",
+        "inputPlaceholder": "Enter one timestamp and title per line, e.g.: 00:01:30 Chapter Title",
+        "filesLabel": "Video Files",
+        "clickToSelect": "Click to select a file",
+        "loadExample": "Load example configuration",
+        "aiFormat": "Format input with AI",
+        "selectFile": "Select File",
+        "splitAll": "Split All",
+        "splitting": "Splitting...",
+        "splitSuccess": "Split Finished",
+        "splitFailed": "Split Failed",
+        "tabs": {
+            "preview": "Preview",
+            "quickSelect": "Quick Select"
+        },
+        "preview": {
+            "startTime": "Start",
+            "endTime": "End",
+            "title": "Title",
+            "empty": "No configuration yet — enter timestamps on the left",
+            "shortDuration": "Interval less than 1 minute"
+        }
+    },
+    "subtitleWorkspace": {
+        "title": "Subtitle Generator",
+        "description": "Generate subtitles for videos with AI speech recognition",
+        "table": {
+            "videoColumn": "Video",
+            "statusColumn": "Status",
+            "actionColumn": "Actions",
+            "empty": "No videos in queue — select files on the left to get started"
+        },
+        "status": {
+            "notStarted": "Not started",
+            "initializing": "Initializing...",
+            "processing": "Processing...",
+            "done": "Done",
+            "doneWithDuration": "Done ({{duration}}s)",
+            "cancelled": "Cancelled",
+            "failed": "Failed",
+            "unknown": "Unknown",
+            "cancelling": "Cancelling..."
+        },
+        "actions": {
+            "transcribe": "Transcribe",
+            "delete": "Delete",
+            "cancel": "Cancel",
+            "cancelledMessage": "Transcription cancelled"
+        }
+    }
+}
+

@@ -1,3 +1,6 @@
+/**
+ * 判断当前窗口是否处于移动端断点，用于响应式侧栏等场景。
+ */
 import * as React from "react"
 
 const MOBILE_BREAKPOINT = 768

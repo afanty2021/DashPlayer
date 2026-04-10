@@ -1,15 +1,17 @@
 import React, { useEffect, memo, useRef, useCallback } from 'react';
 import UrlUtil from '@/common/utils/UrlUtil';
 import SubtitleList from './SubtitleList';
-import { VideoClip } from '@/fronted/hooks/useClipTender';
+import { VideoClip } from './types';
 import { AspectRatio } from '@/fronted/components/ui/aspect-ratio';
 import VideoPlayerShortcut from './VideoPlayerShortcut';
-import { PlayerEngineV2 } from '@/fronted/components/feature/player/player-v2';
-import { usePlayerV2State } from '@/fronted/hooks/usePlayerV2State';
+import { PlayerEngine } from '@/fronted/components/feature/player/player';
+import { usePlayerState } from '@/fronted/hooks/usePlayerState';
 import { convertClipSrtLinesToSentences } from '@/fronted/lib/clipToSentenceConverter';
 import { useVocabularyState } from '@/fronted/hooks/useVocabulary';
 import { Sentence } from '@/common/types/SentenceC';
 import { ClipSrtLine } from '@/common/types/clipMeta';
+import { backendClient } from '@/fronted/application/bootstrap/backendClient';
+import { ClipVocabularyEntry } from '@/common/types/vo/VideoLearningClipVO';
 
 const SubtitleListWithProgress = memo(function SubtitleListWithProgress({
   lines,
@@ -67,25 +69,25 @@ export default function VideoPlayerPane({
   forcePlayKey,
 }: Props) {
   // 使用新的播放器状态管理 - 精确订阅避免频繁重渲染
-  const playing = usePlayerV2State((s) => s.playing);
-  const currentSentence = usePlayerV2State((s) => s.currentSentence);
-  const sentences = usePlayerV2State((s) => s.sentences);
-  const autoPause = usePlayerV2State((s) => s.autoPause);
-  const singleRepeat = usePlayerV2State((s) => s.singleRepeat);
+  const playing = usePlayerState((s) => s.playing);
+  const currentSentence = usePlayerState((s) => s.currentSentence);
+  const sentences = usePlayerState((s) => s.sentences);
+  const autoPause = usePlayerState((s) => s.autoPause);
+  const singleRepeat = usePlayerState((s) => s.singleRepeat);
 
   // 播放控制方法
-  const play = usePlayerV2State((s) => s.play);
-  const togglePlay = usePlayerV2State((s) => s.togglePlay);
-  const seekToTarget = usePlayerV2State((s) => s.seekToTarget);
+  const play = usePlayerState((s) => s.play);
+  const togglePlay = usePlayerState((s) => s.togglePlay);
+  const seekToTarget = usePlayerState((s) => s.seekToTarget);
 
   // 模式控制方法
-  const setAutoPause = usePlayerV2State((s) => s.setAutoPause);
-  const setSingleRepeat = usePlayerV2State((s) => s.setSingleRepeat);
+  const setAutoPause = usePlayerState((s) => s.setAutoPause);
+  const setSingleRepeat = usePlayerState((s) => s.setSingleRepeat);
 
   // 字幕相关方法
-  const setSource = usePlayerV2State((s) => s.setSource);
-  const loadSubtitles = usePlayerV2State((s) => s.loadSubtitles);
-  const clearSubtitles = usePlayerV2State((s) => s.clearSubtitles);
+  const setSource = usePlayerState((s) => s.setSource);
+  const loadSubtitles = usePlayerState((s) => s.loadSubtitles);
+  const clearSubtitles = usePlayerState((s) => s.clearSubtitles);
   const setVocabularyWords = useVocabularyState((s) => s.setVocabularyWords);
   const setVocabularyForms = useVocabularyState((s) => s.setVocabularyForms);
   const clearVocabularyWords = useVocabularyState((s) => s.clearVocabularyWords);
@@ -95,6 +97,7 @@ export default function VideoPlayerPane({
   const pendingHighlightRef = useRef<{ fileHash?: string; index: number } | null>(null);
   const autoPlayRef = useRef(false);
   const lineIdxRef = useRef(lineIdx);
+  const resolvedVocabularyCacheRef = useRef<Record<string, ClipVocabularyEntry[]>>({});
 
   useEffect(() => {
     lineIdxRef.current = lineIdx;
@@ -141,13 +144,13 @@ export default function VideoPlayerPane({
   }, [applyPendingTarget, play]);
 
   // 高级API
-  const prevSentence = usePlayerV2State((s) => s.prevSentence);
-  const nextSentence = usePlayerV2State((s) => s.nextSentence);
-  const repeatCurrent = usePlayerV2State((s) => s.repeatCurrent);
+  const prevSentence = usePlayerState((s) => s.prevSentence);
+  const nextSentence = usePlayerState((s) => s.nextSentence);
+  const repeatCurrent = usePlayerState((s) => s.repeatCurrent);
 
   // 只读选择器（用于边界检测）
-  const isAtFirstSentence = usePlayerV2State((s) => s.isAtFirstSentence);
-  const isAtLastSentence = usePlayerV2State((s) => s.isAtLastSentence);
+  const isAtFirstSentence = usePlayerState((s) => s.isAtFirstSentence);
+  const isAtLastSentence = usePlayerState((s) => s.isAtLastSentence);
 
   // 当clip或forcePlayKey发生变化时，加载新的视频和字幕
   useEffect(() => {
@@ -188,30 +191,75 @@ export default function VideoPlayerPane({
       return;
     }
 
-    const vocabularyEntries = clip.vocabulary ?? [];
-    const baseWords: string[] = [];
-    const formMap: Record<string, string> = {};
+    /**
+     * 将词汇条目同步到前端词汇 store，供字幕高亮使用。
+     *
+     * @param entries 当前片段的词汇条目。
+     */
+    const syncVocabularyEntries = (entries: ClipVocabularyEntry[]) => {
+      const baseWords: string[] = [];
+      const formMap: Record<string, string> = {};
 
-    vocabularyEntries.forEach((entry) => {
-      const base = entry.base?.toLowerCase().trim();
-      if (!base) {
+      entries.forEach((entry) => {
+        const word = entry.word?.toLowerCase().trim();
+        if (!word) {
+          return;
+        }
+        if (!baseWords.includes(word)) {
+          baseWords.push(word);
+        }
+        (entry.matchedForms || []).forEach((form) => {
+          const normalizedForm = form?.toLowerCase().trim();
+          if (normalizedForm) {
+            formMap[normalizedForm] = word;
+          }
+        });
+      });
+
+      setVocabularyWords(baseWords);
+      setVocabularyForms(formMap);
+    };
+
+    const baseVocabularyEntries = clip.vocabulary ?? [];
+    syncVocabularyEntries(baseVocabularyEntries);
+
+    const normalizedWords = baseVocabularyEntries
+      .map((entry) => entry.word?.toLowerCase().trim())
+      .filter((word): word is string => !!word);
+    if (normalizedWords.length === 0) {
+      return () => {
+        clearVocabularyWords();
+      };
+    }
+
+    const cachedEntries = resolvedVocabularyCacheRef.current[clip.key];
+    if (cachedEntries) {
+      syncVocabularyEntries(cachedEntries);
+      return () => {
+        clearVocabularyWords();
+      };
+    }
+
+    let disposed = false;
+    const resolveVocabulary = async () => {
+      const result = await backendClient.call('video-learning/resolve-clip-vocabulary', {
+        lines: clip.clipContent,
+        words: normalizedWords,
+      });
+      if (!result.success || disposed) {
         return;
       }
-      if (!baseWords.includes(base)) {
-        baseWords.push(base);
-      }
-      (entry.forms || []).forEach((form) => {
-        const normalizedForm = form?.toLowerCase().trim();
-        if (normalizedForm) {
-          formMap[normalizedForm] = base;
-        }
-      });
+
+      resolvedVocabularyCacheRef.current[clip.key] = result.data;
+      syncVocabularyEntries(result.data);
+    };
+
+    resolveVocabulary().catch(() => {
+      // 保持基础词高亮即可，失败时不覆盖当前已回填的数据。
     });
 
-    setVocabularyWords(baseWords);
-    setVocabularyForms(formMap);
-
     return () => {
+      disposed = true;
       clearVocabularyWords();
     };
   }, [clip, setVocabularyWords, setVocabularyForms, clearVocabularyWords]);
@@ -315,12 +363,12 @@ export default function VideoPlayerPane({
   if (!clip) {
     // 空白骨架屏幕
     return (
-      <div className="rounded-2xl border border-border bg-card/90 p-6 shadow-sm">
+      <div className="rounded-xl bg-muted/30 p-4">
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {/* 视频播放器骨架 */}
           <div>
             <AspectRatio ratio={16 / 9}>
-              <div className="w-full h-full bg-muted rounded-xl flex items-center justify-center">
+              <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center">
                 <div className="text-center text-muted-foreground">
                   <div className="w-16 h-16 bg-muted/70 rounded-full mx-auto mb-3 flex items-center justify-center">
                     <div className="w-8 h-8">▶</div>
@@ -349,12 +397,12 @@ export default function VideoPlayerPane({
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-card/90 p-6 shadow-sm">
+    <div className="rounded-xl bg-muted/30 p-4">
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div>
           <AspectRatio ratio={16 / 9}>
-            <div className="w-full rounded-xl overflow-hidden border border-border/60 bg-black">
-              <PlayerEngineV2
+            <div className="w-full rounded-lg overflow-hidden bg-black">
+              <PlayerEngine
                 width="100%"
                 height="100%"
                 onReady={handlePlayerReady}
@@ -392,7 +440,6 @@ export default function VideoPlayerPane({
         onPrevSentence={handlePrevSentence}
         onNextSentence={handleNextSentence}
         onRepeatSentence={() => repeatCurrent({ loop: false })}
-        onSeekToCurrentStart={() => repeatCurrent({ loop: false })}
         onChangeSingleRepeat={() => setSingleRepeat(!singleRepeat)}
         onChangeAutoPause={() => setAutoPause(!autoPause)}
       />

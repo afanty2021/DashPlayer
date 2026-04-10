@@ -73,6 +73,11 @@ export function initRendererApis(): () => void {
         useTranslation.getState().updateTranslations(params.translations);
     });
 
+    register('translation/batch-failed', async (params) => {
+        logger.debug('Batch translation failed', { params });
+        useTranslation.getState().markTranslationFailed(params);
+    });
+
     register('transcript/batch-result', async (params) => {
         logger.debug('Batch transcription result', { params });
         useTranscript.getState().updateTranscriptTasks(params.updates);

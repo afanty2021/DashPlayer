@@ -1,3 +1,6 @@
+/**
+ * 管理字幕自动滚动状态、可视边界和当前高亮项的滚动同步。
+ */
 import { VirtuosoHandle } from 'react-virtuoso';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';

@@ -1,7 +1,7 @@
 import React, { ReactElement } from 'react';
 
-import { playerV2Actions } from '@/fronted/components/feature/player/player-v2';
-import { usePlayerV2State } from '@/fronted/hooks/usePlayerV2State';
+import { playerActions } from '@/fronted/components/feature/player/player';
+import { usePlayerState } from '@/fronted/hooks/usePlayerState';
 import { useMemo } from 'react';
 import FullscreenTranslatableLine from './FullscreenTranslatableLine';
 import SubtitleLine from './SubtitleLine';
@@ -9,8 +9,8 @@ import StrUtil from '@/common/utils/str-util';
 import useTranslation from '@/fronted/hooks/useTranslation';
 
 const SubtitleStack = () => {
-    const sentence = usePlayerV2State((state) => state.currentSentence);
-    const srtTender = usePlayerV2State((state) => state.srtTender);
+    const sentence = usePlayerState((state) => state.currentSentence);
+    const srtTender = usePlayerState((state) => state.srtTender);
     const adjusted = useMemo(() => (sentence && srtTender ? (srtTender.adjusted(sentence) ?? false) : false), [sentence, srtTender]);
 
     const translationKey = sentence?.translationKey || '';
@@ -34,7 +34,7 @@ const SubtitleStack = () => {
                         <FullscreenTranslatableLine
                             adjusted={adjusted}
                             clearAdjust={() => {
-                                void playerV2Actions.clearAdjust();
+                                void playerActions.clearAdjust();
                             }}
                             key={`first-${sentence.key}`}
                             sentence={sentence}

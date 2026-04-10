@@ -1,3 +1,6 @@
+/**
+ * 管理转码页面的文件队列、文件夹队列以及后端任务状态。
+ */
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
 import { FolderVideos } from '@/common/types/tonvert-type';

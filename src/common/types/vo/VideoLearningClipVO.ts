@@ -1,6 +1,12 @@
 export type ClipVocabularyEntry = {
-    base: string;
-    forms: string[];
+    /**
+     * 词表中的基础单词。
+     */
+    word: string;
+    /**
+     * 当前片段里实际命中的词形列表。
+     */
+    matchedForms: string[];
 };
 
 export type VideoLearningClipVO = {

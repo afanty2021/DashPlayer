@@ -11,15 +11,20 @@ import { cn } from '@/fronted/lib/utils';
 import OpenAIWordPop from './openai-word-pop';
 import useSetting from '@/fronted/hooks/useSetting';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
-import useVocabulary from '@/fronted/hooks/useVocabulary';
 import { useTransLineTheme } from './translatable-theme';
 
 const logger = getRendererLogger('WordPop');
 
 export interface WordSubParam {
-    word: string;
     translation: YdRes | OpenAIDictionaryResult | null | undefined;
-    hoverColor: string;
+    /**
+     * 浮层锚点所绑定的单词元素。
+     *
+     * 约束：
+     * - 该元素由外层 `Word` 持有，生命周期需覆盖整个悬停过程。
+     * - 传入 `null` 时仅渲染浮层容器，不会尝试重新创建参考节点。
+     */
+    referenceElement: HTMLElement | null;
     isLoading?: boolean;
     openaiStreamingData?: OpenAIDictionaryResult | null;
     isStreaming?: boolean;
@@ -34,9 +39,8 @@ export interface WordSubParam {
 const WordPop = React.forwardRef(
     (
         {
-            word,
             translation,
-            hoverColor,
+            referenceElement,
             isLoading: externalIsLoading,
             openaiStreamingData,
             isStreaming = false,
@@ -49,24 +53,16 @@ const WordPop = React.forwardRef(
 
         const theme = useTransLineTheme();
         const setting = useSetting((state) => state.setting);
-        const dictionaryEngineRaw = setting('dictionary.engine');
+        const dictionaryEngineRaw = setting('providers.dictionary');
         const dictionaryEngine =
             dictionaryEngineRaw === 'youdao' || dictionaryEngineRaw === 'openai'
                 ? dictionaryEngineRaw
                 : 'openai';
         const openaiDictionaryEnabled = dictionaryEngine === 'openai';
-        const vocabularyStore = useVocabulary();
-        const isVocabularyWord = vocabularyStore.isVocabularyWord;
-        
-        // 检查是否是词汇单词
-	        const cleanWord = word.toLowerCase().replace(/[^\w]/g, '');
-	        const isVocab = cleanWord && isVocabularyWord(cleanWord);
-
-	        const { refs, floatingStyles } = useFloating({
-	            middleware: [
-	                // autoPlacement({ allowedPlacements: ['bottom'] }),
-	                offset(50),
-	                autoPlacement({
+        const { refs, floatingStyles } = useFloating({
+            middleware: [
+                offset(50),
+                autoPlacement({
                     allowedPlacements: [
                         'top',
                         'bottom',
@@ -74,9 +70,9 @@ const WordPop = React.forwardRef(
                         'top-end',
                         'bottom-start',
                         'bottom-end'
-                    ]
-                })
-            ]
+                    ],
+                }),
+            ],
         });
 
         const { getReferenceProps, getFloatingProps } = useInteractions([]);
@@ -87,6 +83,13 @@ const WordPop = React.forwardRef(
         const handleIframeLoad = () => {
             setIsLoading(false);
         };
+
+        /**
+         * 将浮层显式锚定到外层稳定存在的单词节点，避免悬停时替换文本 DOM。
+         */
+        React.useEffect(() => {
+            refs.setReference(referenceElement);
+        }, [referenceElement, refs]);
 
         const isYoudaoFormat = (data: any): data is YdRes => {
             return data && 'webdict' in data && 'translation' in data;
@@ -126,7 +129,6 @@ const WordPop = React.forwardRef(
             const openAILoading = openaiDictionaryEnabled
                 ? (externalIsLoading || isStreaming) && !openAIHasData
                 : externalIsLoading;
-            
             logger.debug('WordPop content type detection', {
                 translation,
                 shouldShowYoudao,
@@ -166,25 +168,11 @@ const WordPop = React.forwardRef(
 
         return (
             <>
-                <div
-                    ref={refs.setReference}
-                    className={cn(
-                        'rounded select-none z-50 focus:outline-none',
-                        hoverColor,
-                        isVocab && theme.word.vocabHighlightClass
-                    )}
-                    role="button"
-                    tabIndex={0}
-                    {...getReferenceProps()}
-                >
-                    {word}
-	                </div>
-	 
-	                <FloatingPortal>
-	                    <div
-	                        {...getFloatingProps()}
-	                        ref={refs.setFloating}
-	                        style={floatingStyles}
+                <FloatingPortal>
+                    <div
+                        {...getFloatingProps(getReferenceProps())}
+                        ref={refs.setFloating}
+                        style={floatingStyles}
                         className="z-[9999]"
                         onClick={(e) => {
                             e.stopPropagation();

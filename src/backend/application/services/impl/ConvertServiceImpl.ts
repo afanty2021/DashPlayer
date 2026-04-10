@@ -7,6 +7,7 @@ import TYPES from '@/backend/ioc/types';
 import FfmpegService from '@/backend/application/services/FfmpegService';
 import ConvertService from '@/backend/application/services/ConvertService';
 import fs from 'fs';
+import StorageDirectoryProvider from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 
 @injectable()
@@ -16,9 +17,12 @@ export default class ConvertServiceImpl implements ConvertService {
 
     @inject(TYPES.FfmpegService)
     private ffmpegService!: FfmpegService;
+    @inject(TYPES.StorageDirectoryProvider)
+    private storageDirectoryProvider!: StorageDirectoryProvider;
     private logger = getMainLogger('ConvertServiceImpl');
 
     public async toMp4(taskId: number, file: string): Promise<void> {
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(file);
         const parsed = path.parse(file);
         const baseName = parsed.name.endsWith('.html5') ? parsed.name.slice(0, -'.html5'.length) : parsed.name;
         const mp4File = path.join(parsed.dir, `${baseName}.html5.mp4`);
@@ -99,6 +103,7 @@ export default class ConvertServiceImpl implements ConvertService {
     public async fromFolder(folders: string[]): Promise<FolderVideos[]> {
         const result: FolderVideos[] = [];
         for (const folder of folders) {
+            await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(folder);
             const mkvFiles = fs.readdirSync(folder).filter(file => file.endsWith('.mkv'));
             result.push({
                 folder,
@@ -115,6 +120,7 @@ export default class ConvertServiceImpl implements ConvertService {
     }
 
     public async suggestHtml5Video(filePath: string): Promise<string | null> {
+        await this.storageDirectoryProvider.ensurePathAccessPermissionIfExists(filePath);
         const parsed = path.parse(filePath);
         if (parsed.base.endsWith('.html5.mp4')) {
             return filePath;

@@ -1,3 +1,6 @@
+/**
+ * 管理转录页面的文件队列、转录任务状态以及完成后的回流处理。
+ */
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
 import toast from 'react-hot-toast';

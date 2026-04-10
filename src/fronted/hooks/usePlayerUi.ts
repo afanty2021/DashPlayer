@@ -1,3 +1,6 @@
+/**
+ * 管理播放器字幕展示偏好，例如中英显示、侧栏联动和逐词模式。
+ */
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 

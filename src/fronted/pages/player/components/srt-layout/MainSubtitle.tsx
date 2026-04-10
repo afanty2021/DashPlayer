@@ -3,14 +3,14 @@ import TranslatableLine from '@/fronted/pages/player/components/subtitles/Transl
 import NormalLine from './NormalLine';
 import useTranslation from '@/fronted/hooks/useTranslation';
 import { getRendererLogger } from '@/fronted/log/simple-logger';
-import { usePlayerV2State } from '@/fronted/hooks/usePlayerV2State';
-import { playerV2Actions } from '@/fronted/components/feature/player/player-v2';
+import { usePlayerState } from '@/fronted/hooks/usePlayerState';
+import { playerActions } from '@/fronted/components/feature/player/player';
 
 export default function MainSubtitle() {
     const logger = getRendererLogger('MainSubtitle');
-    const sentence = usePlayerV2State((s) => s.currentSentence);
-    const subtitle = usePlayerV2State((s) => s.sentences);
-    const srtTender = usePlayerV2State((s) => s.srtTender);
+    const sentence = usePlayerState((s) => s.currentSentence);
+    const subtitle = usePlayerState((s) => s.sentences);
+    const srtTender = usePlayerState((s) => s.srtTender);
     const adjusted = useMemo(() => (sentence && srtTender ? (srtTender.adjusted(sentence) ?? false) : false), [sentence, srtTender]);
 
     const loadTranslationGroup = useTranslation(state => state.loadTranslationGroup);
@@ -45,7 +45,7 @@ export default function MainSubtitle() {
                 return (
                     <TranslatableLine
                         adjusted={adjusted}
-                        clearAdjust={() => { void playerV2Actions.clearAdjust(); }}
+                        clearAdjust={() => { void playerActions.clearAdjust(); }}
                         key={`first-${sentence.key}`}
                         sentence={sentence}
                     />

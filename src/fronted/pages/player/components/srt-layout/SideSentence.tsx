@@ -2,7 +2,7 @@ import React, { forwardRef } from 'react';
 import useSetting from '@/fronted/hooks/useSetting';
 // removed old player controller usage
 import { usePlayerUiState } from '@/fronted/hooks/usePlayerUi';
-import { usePlayerV2State } from '@/fronted/hooks/usePlayerV2State';
+import { usePlayerState } from '@/fronted/hooks/usePlayerState';
 import { cn } from '@/fronted/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/fronted/components/ui/tooltip';
 import { motion } from 'framer-motion';
@@ -114,7 +114,7 @@ const CARD_RADIUS_PX = 12;
 
 const SideSentence = forwardRef<HTMLDivElement, SideSentenceNewParam>(
     ({ sentence, onClick, isCurrent, isRepeat, selectionState }: SideSentenceNewParam, ref) => {
-        const playing = usePlayerV2State((state) => state.playing);
+        const playing = usePlayerState((state) => state.playing);
         const translationKey = sentence?.translationKey || '';
         const newTranslation = useTranslation(state => state.translations.get(translationKey)) || '';
         const s = [sentence.text, sentence.textZH, newTranslation].find(
@@ -123,7 +123,7 @@ const SideSentence = forwardRef<HTMLDivElement, SideSentenceNewParam>(
         const fontSize = useSetting((state) =>
             state.values.get('appearance.fontSize')
         );
-        const ap = usePlayerV2State((state) => state.internal.onPlaySeekTime !== null);
+        const ap = usePlayerState((state) => state.internal.onPlaySeekTime !== null);
         const isFavourite = useFavouriteClip((s) => s.lineClip.get(mapClipKey(useFile.getState().srtHash, sentence.index)) ?? false);
         const [hover, setHover] = React.useState(false);
         const { showEn, syncSide } = usePlayerUiState(
