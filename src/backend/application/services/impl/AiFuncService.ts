@@ -1,21 +1,16 @@
 import TtsService from '@/backend/application/services/TtsService';
 import DpTaskService from '@/backend/application/services/DpTaskService';
-import SettingService from '@/backend/application/services/SettingService';
 import { TranscriptionService } from '@/backend/application/services/TranscriptionService';
-import { SettingsStore } from '@/backend/application/ports/gateways/SettingsStore';
 import TYPES from '@/backend/ioc/types';
 import { getMainLogger } from '@/backend/infrastructure/logger';
 import RendererGateway from '@/backend/application/ports/gateways/renderer/RendererGateway';
 import UrlUtil from '@/common/utils/UrlUtil';
 import { inject, injectable } from 'inversify';
-import * as fs from 'fs';
-import * as path from 'path';
-import { DpTaskState } from '@/backend/infrastructure/db/tables/dpTask';
 import ChatService from '@/backend/application/services/ChatService';
 import { AiFuncFormatSplitPrompt } from '@/common/types/aiRes/AiFuncFormatSplit';
-import StorageDirectoryProvider, {
-    StorageDirectoryTarget,
-} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
+import StorageDirectoryProvider from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
+import { ParakeetModelService } from '@/backend/application/services/impl/ParakeetModelService';
+import { TranscriptTaskState } from '@/common/contracts/transcript/transcript-task';
 
 @injectable()
 export default class AiFuncService {
@@ -30,17 +25,11 @@ export default class AiFuncService {
     @inject(TYPES.RendererGateway)
     private rendererGateway!: RendererGateway;
 
-    @inject(TYPES.SettingService)
-    private settingService!: SettingService;
-
-    @inject(TYPES.SettingsStore)
-    private settingsStore!: SettingsStore;
-
     @inject(TYPES.StorageDirectoryProvider)
     private storageDirectoryProvider!: StorageDirectoryProvider;
 
-    @inject(TYPES.CloudTranscriptionService)
-    private cloudTranscriptionService!: TranscriptionService;
+    @inject(TYPES.ParakeetModelService)
+    private parakeetModelService!: ParakeetModelService;
 
     @inject(TYPES.LocalTranscriptionService)
     private localTranscriptionService!: TranscriptionService;
@@ -67,55 +56,30 @@ export default class AiFuncService {
             updates: [{
                 filePath,
                 taskId: 0,
-                status: DpTaskState.INIT,
+                status: TranscriptTaskState.INIT,
                 result: { message: '初始化...' },
             }],
         });
 
-        const transcriptionEngine = await this.settingService.getCurrentTranscriptionProvider();
-        const modelSize = this.settingsStore.get('whisper.modelSize') === 'large' ? 'large' : 'base';
-        const modelTag = modelSize === 'large' ? 'large-v3' : 'base';
-        const modelsRoot = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.MODELS);
-        const modelPath = path.join(modelsRoot, 'whisper', `ggml-${modelTag}.bin`);
-        const modelDownloaded = fs.existsSync(modelPath);
-
-        let transcriptionService: TranscriptionService;
-        let serviceName = '';
-
-        if (transcriptionEngine === 'whisper' && modelDownloaded) {
-            transcriptionService = this.localTranscriptionService;
-            serviceName = 'Local';
-            this.logger.info('Using local transcription service');
-        } else if (transcriptionEngine === 'whisper' && !modelDownloaded) {
-            this.logger.warn('Whisper model not downloaded', { modelSize, modelPath });
+        const modelStatus = await this.parakeetModelService.getStatus();
+        if (!modelStatus.ready) {
+            this.logger.warn('Parakeet model not downloaded', { modelPath: modelStatus?.modelPath });
             this.rendererGateway.fireAndForget('transcript/batch-result', {
                 updates: [{
                     filePath,
                     taskId: 0,
-                    status: DpTaskState.FAILED,
-                    result: { error: `本地 Whisper 模型未下载：${modelSize}。请到设置页面下载模型后再转录。` },
-                }],
-            });
-            return;
-        } else if (transcriptionEngine === 'openai') {
-            transcriptionService = this.cloudTranscriptionService;
-            serviceName = 'Cloud';
-            this.logger.info('Using cloud transcription service');
-        } else {
-            this.logger.warn('No transcription service enabled');
-            this.rendererGateway.fireAndForget('transcript/batch-result', {
-                updates: [{
-                    filePath,
-                    taskId: 0,
-                    status: DpTaskState.FAILED,
-                    result: { error: '未启用任何转录服务' },
+                    status: TranscriptTaskState.FAILED,
+                    result: {
+                        error: '字幕模型尚未下载',
+                        message: '请先到“设置中心 > 服务凭据”中下载字幕模型',
+                    },
                 }],
             });
             return;
         }
 
-        transcriptionService.transcribe(filePath).catch((error) => {
-            this.logger.error(`${serviceName} transcription failed`, { error: error instanceof Error ? error.message : String(error) });
+        this.localTranscriptionService.transcribe(filePath).catch((error) => {
+            this.logger.error('Local transcription failed', { error: error instanceof Error ? error.message : String(error) });
         });
     }
 
@@ -127,12 +91,6 @@ export default class AiFuncService {
             const localSuccess = this.localTranscriptionService.cancel(filePath);
             if (localSuccess) {
                 this.logger.info('Local transcription task cancelled successfully', { filePath });
-                return true;
-            }
-
-            const cloudSuccess = this.cloudTranscriptionService.cancel(filePath);
-            if (cloudSuccess) {
-                this.logger.info('Cloud transcription task cancelled successfully', { filePath });
                 return true;
             }
 

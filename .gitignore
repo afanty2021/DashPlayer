@@ -96,6 +96,9 @@ out/
 /lib/
 /dist/
 
+/my-new-app/
+.cindy-worktrees/
+
 # Claude Code AI Flow and Swarm coordination data
 .claude-flow/
 .swarm/

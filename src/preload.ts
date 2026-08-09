@@ -15,11 +15,12 @@
  * 文档参考：
  * https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
  */
-
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { SettingKey } from './common/types/store_schema';
-import { ApiDefinitions, ApiMap } from '@/common/api/api-def';
-import {DpTask} from "@/backend/db/tables/dpTask";
+import {contextBridge, ipcRenderer, IpcRendererEvent} from 'electron';
+import {SettingKey} from './common/types/store_schema';
+import {ApiDefinitions, ApiMap} from '@/common/api/api-def';
+import {DpTask} from "@/backend/infrastructure/db/tables/dpTask";
+import {RendererApiDefinitions, RendererApiMap} from '@/common/api/renderer-api-def';
+import type { SimpleEvent } from '@/common/log/simple-types';
 
 /**
  * IPC 通信通道类型定义
@@ -166,16 +167,54 @@ const electronHandler = {
     },
 
     /**
-     * invoke 方法别名，提供与 call 相同的功能
+     * 注册前端 API 方法，供主进程调用
      *
-     * 为了保持代码兼容性而添加的别名方法
+     * @template K - Renderer API 路径键类型
+     * @param path - API 路径
+     * @param handler - 请求处理函数
+     * @returns 取消注册的函数
      */
-    invoke: async function invok<K extends keyof ApiMap>(
+    registerRendererApi: function invok<K extends keyof RendererApiMap>(
         path: K,
-        param?: ApiDefinitions[K]['params']
-    ): Promise<ApiDefinitions[K]['return']> {
-        return ipcRenderer.invoke(path, param);
-    }
+        handler: RendererApiMap[K]
+    ): () => void {
+        const listener = async (event: IpcRendererEvent, callId: string, params: RendererApiDefinitions[K]['params']) => {
+            try {
+                const result = await handler(params);
+                ipcRenderer.send(`renderer-api-response-${callId}`, { success: true, result });
+            } catch (error) {
+                ipcRenderer.send(`renderer-api-response-${callId}`, {
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
+        };
+
+        ipcRenderer.on(`renderer-api-call-${path}`, listener);
+
+        return () => {
+            ipcRenderer.removeListener(`renderer-api-call-${path}`, listener);
+        };
+    },
+
+    // 批量注册前端API方法
+    registerRendererApis: function(apis: Partial<RendererApiMap>): () => void {
+        const unregisterFunctions: Array<() => void> = [];
+
+        for (const [path, handler] of Object.entries(apis) as Array<[keyof RendererApiMap, RendererApiMap[keyof RendererApiMap]]>) {
+            const unregister = this.registerRendererApi(path, handler);
+            unregisterFunctions.push(unregister);
+        }
+
+        return () => {
+            unregisterFunctions.forEach(unregister => unregister());
+        };
+    },
+
+    // 日志写入方法
+    dpLogger: {
+        write: (e: SimpleEvent) => ipcRenderer.send('dp-log/write', e),
+    },
 };
 /**
  * 将处理程序安全地暴露到渲染进程的全局对象

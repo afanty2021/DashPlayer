@@ -24,7 +24,8 @@ import {
 } from '@/common/types/vo/service-credentials-setting-vo';
 import { EngineSelectionSettingVO } from '@/common/types/vo/engine-selection-setting-vo';
 import { ShortcutSettingDetailVO, ShortcutSettingSaveVO } from '@/common/types/vo/shortcut-setting-vo';
-import { WhisperModelStatusVO, WhisperModelSize, WhisperVadModel } from '@/common/types/vo/whisper-model-vo';
+import { ProxySettingDetailVO } from '@/common/contracts/proxy-setting-vo';
+import { ParakeetModelStatusVO } from '@/common/types/vo/parakeet-model-vo';
 import { VideoInfo } from '@/common/types/video-info';
 import { StorageStatusVO } from '@/common/types/vo/StorageStatusVO';
 
@@ -38,7 +39,6 @@ interface AiFuncDef {
     'ai-func/format-split': { params: string, return: number };
     'ai-func/transcript': { params: { filePath: string }, return: void };
     'ai-func/cancel-transcription': { params: { filePath: string }, return: boolean };
-    'ai-func/get-active-transcription-tasks': { params: void, return: unknown[] };
 }
 
 interface DpTaskDef {
@@ -136,6 +136,10 @@ interface WatchHistoryDef {
     'watch-history/attach-srt': { params: { videoPath: string, srtPath: string | 'same' }, return: void };
     'watch-history/suggest-srt': { params: string, return: string[] };
     'watch-history/get-next-video': { params: string, return: WatchHistoryVO | null };
+    'watch-history/set-podcast-mode-preference': {
+        params: { videoId: string, podcastMode: boolean },
+        return: void
+    };
 }
 
 interface SubtitleControllerDef {
@@ -168,12 +172,15 @@ interface SettingsDef {
     'settings/appearance/update': { params: { theme: string; fontSize: string }, return: void };
     'settings/shortcuts/update': { params: ShortcutSettingSaveVO, return: void };
     'settings/storage/update': { params: { path: string; collection: string }, return: void };
+    'settings/proxy/detail': { params: void, return: ProxySettingDetailVO };
+    'settings/proxy/update': { params: { mode: string; url: string; bypassRules: string }, return: void };
 }
 
-interface WhisperModelDef {
-    'whisper/models/status': { params: void, return: WhisperModelStatusVO };
-    'whisper/models/download': { params: { modelSize: WhisperModelSize }, return: { success: boolean; message: string } };
-    'whisper/models/download-vad': { params: { vadModel: WhisperVadModel }, return: { success: boolean; message: string } };
+interface ParakeetModelDef {
+    'parakeet/models/status': { params: void, return: ParakeetModelStatusVO };
+    'parakeet/models/download': { params: void, return: { success: boolean; message: string } };
+    'parakeet/models/cancel-download': { params: void, return: { cancelled: boolean } };
+    'parakeet/models/delete': { params: void, return: { success: boolean; message: string } };
 }
 
 interface SplitVideoDef {
@@ -294,7 +301,7 @@ export type ApiDefinitions = ApiDefinition
     & SubtitleTimestampAdjustmentControllerDef
     & StorageDef
     & SettingsDef
-    & WhisperModelDef
+    & ParakeetModelDef
     & ConvertDef
     & FavoriteClipsDef
     & TagDef

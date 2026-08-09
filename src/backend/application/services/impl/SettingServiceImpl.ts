@@ -1,5 +1,3 @@
-import fs from 'fs';
-import path from 'path';
 import { SettingKey } from '@/common/types/store_schema';
 import { inject, injectable } from 'inversify';
 import TYPES from '@/backend/ioc/types';
@@ -20,9 +18,6 @@ import {
 import { EngineSelectionSettingVO } from '@/common/types/vo/engine-selection-setting-vo';
 import { getSubtitleDefaultStyle } from '@/common/constants/openaiSubtitlePrompts';
 import ModelRoutingService from '@/backend/application/services/ModelRoutingService';
-import StorageDirectoryProvider, {
-    StorageDirectoryTarget,
-} from '@/backend/application/ports/gateways/storage/StorageDirectoryProvider';
 
 @injectable()
 export default class SettingServiceImpl implements SettingService {
@@ -32,7 +27,6 @@ export default class SettingServiceImpl implements SettingService {
     @inject(TYPES.YouDaoClientProvider) private youDaoProvider!: ClientProviderService<YouDaoDictionaryClient>;
     @inject(TYPES.SettingsStore) private settingsStore!: SettingsStore;
     @inject(TYPES.ModelRoutingService) private modelRoutingService!: ModelRoutingService;
-    @inject(TYPES.StorageDirectoryProvider) private storageDirectoryProvider!: StorageDirectoryProvider;
     private logger = getMainLogger('SettingServiceImpl');
 
     private async setValue(key: SettingKey, value: string): Promise<void> {
@@ -81,13 +75,6 @@ export default class SettingServiceImpl implements SettingService {
 
     private normalizeDictionaryEngine(value: string): 'openai' | 'youdao' | 'none' {
         if (value === 'openai' || value === 'youdao' || value === 'none') {
-            return value;
-        }
-        return 'none';
-    }
-
-    private normalizeTranscriptionEngine(value: string): 'openai' | 'whisper' | 'none' {
-        if (value === 'openai' || value === 'whisper' || value === 'none') {
             return value;
         }
         return 'none';
@@ -150,31 +137,6 @@ export default class SettingServiceImpl implements SettingService {
         return candidate;
     }
 
-    /**
-     * 获取当前所选 Whisper 模型文件路径。
-     * @returns 模型大小与对应文件路径。
-     */
-    private async whisperModelPathForCurrentSize(): Promise<{ modelSize: 'base' | 'large'; modelPath: string }> {
-        const modelSize = this.getValue('whisper.modelSize') === 'large' ? 'large' : 'base';
-        const modelTag = modelSize === 'large' ? 'large-v3' : 'base';
-        const modelsRoot = await this.storageDirectoryProvider.provideDirectory(StorageDirectoryTarget.MODELS);
-        const modelPath = path.join(modelsRoot, 'whisper', `ggml-${modelTag}.bin`);
-        return { modelSize, modelPath };
-    }
-
-    /**
-     * 判断当前所选 Whisper 模型是否已准备完成。
-     * @returns 模型就绪状态与路径信息。
-     */
-    private async isWhisperModelReady(): Promise<{ ready: boolean; modelSize: 'base' | 'large'; modelPath: string }> {
-        const { modelSize, modelPath } = await this.whisperModelPathForCurrentSize();
-        return {
-            ready: fs.existsSync(modelPath),
-            modelSize,
-            modelPath,
-        };
-    }
-
     public async migrateProviderSettings(): Promise<void> {
         return Promise.resolve();
     }
@@ -189,16 +151,6 @@ export default class SettingServiceImpl implements SettingService {
     public async getServiceCredentialsDetail(): Promise<ServiceCredentialSettingDetailVO> {
         const availableModels = this.parseOpenAiModels(this.getValue('models.openai.available'));
         const modelDetails = this.buildOpenAiModelDetails(availableModels);
-        const whisperModelSize = this.requireEnumValue(
-            this.getValue('whisper.modelSize'),
-            ['base', 'large'] as const,
-            'whisper.modelSize',
-        );
-        const whisperVadModel = this.requireEnumValue(
-            this.getValue('whisper.vadModel'),
-            ['silero-v5.1.2', 'silero-v6.2.0'] as const,
-            'whisper.vadModel',
-        );
         return {
             openai: {
                 key: this.getValue('apiKeys.openAi.key'),
@@ -212,11 +164,6 @@ export default class SettingServiceImpl implements SettingService {
             youdao: {
                 secretId: this.getValue('apiKeys.youdao.secretId'),
                 secretKey: this.getValue('apiKeys.youdao.secretKey'),
-            },
-            whisper: {
-                modelSize: whisperModelSize,
-                enableVad: this.requireBooleanString(this.getValue('whisper.enableVad'), 'whisper.enableVad'),
-                vadModel: whisperVadModel,
             },
         };
     }
@@ -259,19 +206,6 @@ export default class SettingServiceImpl implements SettingService {
         await this.setValue('apiKeys.youdao.secretId', settings.youdao.secretId);
         await this.setValue('apiKeys.youdao.secretKey', settings.youdao.secretKey);
 
-        const whisperModelSize = this.requireEnumValue(
-            settings.whisper.modelSize,
-            ['base', 'large'] as const,
-            'whisper.modelSize',
-        );
-        const whisperVadModel = this.requireEnumValue(
-            settings.whisper.vadModel,
-            ['silero-v5.1.2', 'silero-v6.2.0'] as const,
-            'whisper.vadModel',
-        );
-        await this.setValue('whisper.modelSize', whisperModelSize);
-        await this.setValue('whisper.enableVad', settings.whisper.enableVad ? 'true' : 'false');
-        await this.setValue('whisper.vadModel', whisperVadModel);
     }
 
     /**
@@ -287,11 +221,6 @@ export default class SettingServiceImpl implements SettingService {
             this.getValue('providers.dictionary'),
             ['openai', 'youdao', 'none'] as const,
             'providers.dictionary',
-        );
-        const transcriptionEngine = this.requireEnumValue(
-            this.getValue('providers.transcription'),
-            ['openai', 'whisper', 'none'] as const,
-            'providers.transcription',
         );
         const subtitleMode = this.requireEnumValue(
             this.getValue('features.openai.subtitleTranslationMode'),
@@ -317,7 +246,6 @@ export default class SettingServiceImpl implements SettingService {
             providers: {
                 subtitleTranslationEngine,
                 dictionaryEngine,
-                transcriptionEngine,
             },
         };
     }
@@ -336,26 +264,12 @@ export default class SettingServiceImpl implements SettingService {
             ['openai', 'youdao', 'none'] as const,
             'providers.dictionaryEngine',
         );
-        const transcriptionEngine = this.requireEnumValue(
-            settings.providers.transcriptionEngine,
-            ['openai', 'whisper', 'none'] as const,
-            'providers.transcriptionEngine',
-        );
         const availableModels = this.parseOpenAiModels(this.getValue('models.openai.available'));
         if (availableModels.length === 0) {
             throw new Error('models.openai.available 为空，无法保存功能模型选择');
         }
-        if (transcriptionEngine === 'whisper') {
-        const whisperStatus = await this.isWhisperModelReady();
-            if (!whisperStatus.ready) {
-                throw new Error(`Whisper 模型未下载：${whisperStatus.modelSize}。请先下载模型（${whisperStatus.modelPath}）`);
-            }
-            await this.setValue('whisper.enabled', 'true');
-        }
-
         await this.setValue('providers.subtitleTranslation', subtitleTranslationEngine);
         await this.setValue('providers.dictionary', dictionaryEngine);
-        await this.setValue('providers.transcription', transcriptionEngine);
 
         const subtitleMode = this.requireEnumValue(
             settings.openai.subtitleTranslationMode,
@@ -401,14 +315,6 @@ export default class SettingServiceImpl implements SettingService {
     public async getCurrentTranslationProvider(): Promise<'openai' | 'tencent' | null> {
         const engine = this.normalizeSubtitleEngine(this.getValue('providers.subtitleTranslation'));
         if (engine === 'openai' || engine === 'tencent') {
-            return engine;
-        }
-        return null;
-    }
-
-    public async getCurrentTranscriptionProvider(): Promise<'openai' | 'whisper' | null> {
-        const engine = this.normalizeTranscriptionEngine(this.getValue('providers.transcription'));
-        if (engine === 'openai' || engine === 'whisper') {
             return engine;
         }
         return null;

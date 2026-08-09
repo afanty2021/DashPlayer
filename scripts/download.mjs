@@ -6,6 +6,9 @@ import progress from "progress";
 import {createHash} from "crypto";
 import os from "os";
 import path from 'path';
+import {pipeline} from 'stream/promises';
+import * as tarFs from 'tar-fs';
+import unbzip2Stream from 'unbzip2-stream';
 import chalk from 'chalk';
 import { $ } from 'zx';
 
@@ -204,9 +207,24 @@ const extractTarGz = async (tarPath, destDir) => {
     await $`tar -xzf ${tarPath} -C ${destDir}`;
 };
 
+/**
+ * 根据归档格式解压到指定目录，tar.bz2 在 Node 内流式处理以兼容 Windows。
+ * @param {string} archivePath 归档文件路径。
+ * @param {string} destDir 解压目标目录。
+ * @returns {Promise<void>}
+ */
 const extractArchive = async (archivePath, destDir) => {
     if (archivePath.endsWith('.zip')) return extractZip(archivePath, destDir);
     if (archivePath.endsWith('.tar.gz') || archivePath.endsWith('.tgz')) return extractTarGz(archivePath, destDir);
+    if (archivePath.endsWith('.tar.bz2')) {
+        mkdirp(destDir);
+        await pipeline(
+            fs.createReadStream(archivePath),
+            unbzip2Stream(),
+            tarFs.extract(destDir),
+        );
+        return;
+    }
     throw new Error(`Unsupported archive type: ${archivePath}`);
 };
 
@@ -288,7 +306,7 @@ const downloadAndExtractBinaryFromArchive = async ({
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dashplayer-download-'));
     const nameFromUrl = String(url).split('/').pop() || 'asset';
     const archivePath = path.join(tmpRoot, nameFromUrl);
-    console.info(chalk.blue(`=> whisper.cpp archive: ${url}`));
+    console.info(chalk.blue(`=> runtime archive: ${url}`));
     await download({url, dir: tmpRoot, file: nameFromUrl});
 
     const extractDir = path.join(tmpRoot, 'extract');
@@ -306,7 +324,7 @@ const downloadAndExtractBinaryFromArchive = async ({
     mkdirp(path.dirname(outputPath));
     fs.copyFileSync(found, outputPath);
     fs.chmodSync(outputPath, 0o755);
-    console.info(chalk.green(`✅ whisper.cpp binary: ${found} -> ${outputPath}`));
+    console.info(chalk.green(`✅ runtime binary: ${found} -> ${outputPath}`));
 
     if (extraCopyPatterns.length > 0) {
         for (const pattern of extraCopyPatterns) {
@@ -330,7 +348,7 @@ const downloadAndExtractBinaryFromArchive = async ({
                 const dest = path.join(path.dirname(outputPath), path.basename(src));
                 fs.copyFileSync(src, dest);
                 fs.chmodSync(dest, 0o755);
-                console.info(chalk.green(`✅ whisper.cpp extra: ${src} -> ${dest}`));
+                console.info(chalk.green(`✅ runtime extra: ${src} -> ${dest}`));
             }
         }
     }
@@ -416,45 +434,43 @@ const arch = process.env.npm_config_arch || os.arch()
 }
 
 {
-    // whisper.cpp (prefer whisper-cli; fallback to existing main if present)
+    // sherpa-onnx 离线识别 CLI
     const platformDir = platform === 'darwin' ? 'darwin' : platform === 'win32' ? 'win32' : 'linux';
     const archDir = arch === 'arm64' ? 'arm64' : 'x64';
-    const basePath = path.join(dir, 'whisper.cpp', archDir, platformDir);
+    const basePath = path.join(dir, 'sherpa-onnx', archDir, platformDir);
     mkdirp(basePath);
 
-    const exeName = platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli';
+    const exeName = platform === 'win32' ? 'sherpa-onnx-offline.exe' : 'sherpa-onnx-offline';
     const exePath = path.join(basePath, exeName);
     const res = await verifyExistence({ dir: basePath, file: exeName });
 
     if (res === 'need_download') {
-        try {
-            const platKey = platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : 'linux';
-            const archKey = arch === 'arm64' ? 'arm64' : 'x64';
-            const nameRegex = new RegExp(`^whisper\\.cpp-${platKey}-${archKey}\\.(zip|tar\\.gz|tgz)$`, 'i');
-
-            let assetUrl = await getLatestReleaseAssetUrl({ owner: 'solidSpoon', repo: 'DashPlayer', nameRegex });
-            if (!assetUrl) {
-                assetUrl = await getLatestReleaseAssetUrlIncludingPrerelease({ owner: 'solidSpoon', repo: 'DashPlayer', nameRegex });
-            }
-            if (!assetUrl) {
-                console.warn(chalk.yellow(`⚠️  whisper.cpp release asset not found for ${platform}/${arch}, skip download`));
-            } else {
-                const extraCopyPatterns = [];
-                if (platform === 'darwin') {
-                    extraCopyPatterns.push(/^(libwhisper|libggml).*\.dylib$/i);
-                } else if (platform === 'linux') {
-                    extraCopyPatterns.push(/^(libwhisper|libggml).*\.so(\.\d+)?$/i);
-                }
-                console.info(chalk.blue(`=> whisper.cpp target: ${exePath}`));
-                await downloadAndExtractBinaryFromArchive({
-                    url: assetUrl,
-                    outputPath: exePath,
-                    binaryNameCandidates: platform === 'win32' ? ['whisper-cli.exe', 'main.exe'] : ['whisper-cli', 'main'],
-                    extraCopyPatterns,
-                });
-            }
-        } catch (e) {
-            console.warn(chalk.yellow(`⚠️  whisper.cpp download failed, keep existing binaries: ${e instanceof Error ? e.message : String(e)}`));
+        const version = '1.13.4';
+        const releaseBase = `https://github.com/k2-fsa/sherpa-onnx/releases/download/v${version}`;
+        const assetNames = {
+            darwin: {
+                arm64: `sherpa-onnx-v${version}-osx-arm64-static-no-tts.tar.bz2`,
+                x64: `sherpa-onnx-v${version}-osx-x64-static-no-tts.tar.bz2`,
+            },
+            linux: {
+                arm64: `sherpa-onnx-v${version}-linux-aarch64-static.tar.bz2`,
+                x64: `sherpa-onnx-v${version}-linux-x64-static-no-tts.tar.bz2`,
+            },
+            win32: {
+                arm64: `sherpa-onnx-v${version}-win-arm64-static-MT-Release-no-tts.tar.bz2`,
+                x64: `sherpa-onnx-v${version}-win-x64-static-MT-Release-no-tts.tar.bz2`,
+            },
+        };
+        const assetName = assetNames[platform]?.[arch];
+        const assetUrl = assetName ? `${releaseBase}/${assetName}` : null;
+        if (!assetUrl) {
+            throw new Error(`Unsupported sherpa-onnx platform/arch: ${platform}/${arch}`);
         }
+        console.info(chalk.blue(`=> sherpa-onnx target: ${exePath}`));
+        await downloadAndExtractBinaryFromArchive({
+            url: assetUrl,
+            outputPath: exePath,
+            binaryNameCandidates: [exeName],
+        });
     }
 }
